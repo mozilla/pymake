@@ -1,8 +1,12 @@
 #!/usr/bin/env python
 
 """
-An internal representation of a makefile.
+A representation of makefile data structures.
 """
+
+import logging
+
+log = logging.getLogger('pymake.data')
 
 class FunctionCall(object):
     """
@@ -20,8 +24,26 @@ class Variable(object):
     An object that represents a string with variable substitutions.
     """
 
-    def __init__(self):
+    FLAVOR_RECURSIVE = 0
+    FLAVOR_SIMPLE = 1
+
+    SOURCE_OVERRIDE = 0
+    SOURCE_COMMANDLINE = 1
+    SOURCE_MAKEFILE = 2
+    # I have no intention of supporting values from the environment
+    # SOURCE ENVIRONMENT = 3
+    SOURCE_AUTOMATIC = 4
+    # I have no intention of supporting builtin rules or variables that go with them
+    # SOURCE_IMPLICIT = 5
+
+    def __init__(self, flavor, source):
         self._elements = []
+
+        assert(flavor in (FLAVOR_RECURSIVE, FLAVOR_SIMPLE))
+        self.flavor = flavor
+
+        assert(source in (SOURCE_OVERRIDE, SOURCE_MAKEFILE, SOURCE_AUTOMATIC))
+        self.source = source
 
     def append(self, object):
         self._elements.append(object)
@@ -41,13 +63,31 @@ class Variable(object):
         return ''.join( (isinstance(i, str) and i or i.resolve(variables, setting)
                          for i in self) )
 
+class Target(object):
+    """
+    A target is a file or arbitrary string. It contains a list of Rules.
+
+    Note: a target may contain a pattern Rule.
+    """
+
+    def __init__(self, name):
+        self.name = name
+        self.type = type
+        self.rules = []
+
+    def addRule(self, rule):
+        rules.append(rule)
+        # TODO: sanity-check that the rule either has the name of the target,
+        # or that the pattern matches. Also maybe that the type matches
+
 class Rule(object):
     """
     A rule contains a target and a list of prerequisites. It may also
     contain rule-specific variables.
-
-    Note: a PatternRule is not a rule; it's a formula for creating a rule.
     """
+
+    RULE_ORDINARY = 0
+    RULE_DOUBLECOLON = 1
 
     def __init__(self, target):
         self.target = target
@@ -62,9 +102,27 @@ class Rule(object):
 
 class Makefile(object):
     """
-    A makefile is a series of rules and a set of global variable definitions.
+    A Makefile is a variable dict, a target dict, and a list of rules.
+
+    TODO: should the rules be *all* the rules, or just the pattern rules?
     """
 
     def __init__(self):
-        self._rules = []
+        self._targets = {}
         self._variables = {}
+        self._rules = []
+
+    def setVariable(self, name, value):
+        assert(isinstance(value, Variable))
+
+        if name in self._variables:
+            oldsource = self._variables[name].source
+            if newsource > oldsource:
+                log.warning("Not setting variable '%s', already set to higher priority value." % (name, ))
+                return
+
+        self._variables[name] = value
+
+    def addRule(self, rule):
+        self._rules.append(rule)
+        # TODO: add this to targets!
