@@ -8,16 +8,82 @@ import logging
 
 log = logging.getLogger('pymake.data')
 
-class FunctionCall(object):
+class Function(object):
     """
     An object that represents a function call. This class is always subclassed
-    with a .resolve method which actually performs the function.
+    with the following two methods:
+
+    def setup(self)
+        validates the number of arguments to a function
+        no return value
+    def resolve(self, variables, setting)
+        Calls the function
+        @returns string
     """
     def __init__(self):
         self._arguments = []
 
     def append(self, arg):
         self._arguments.append(arg)
+
+class FlavorFunction(Function):
+    def setup(self):
+        if len(self._arguments) < 1:
+            raise SomeError
+        if len(self._arguments) > 1:
+            log.warning("Function 'flavor' only takes one argument.")
+
+    def resolve(self, variables, setting):
+        varname = self._arguments[0].resolve(variables, setting)
+
+        v = variables.get(varname, None)
+        if v is None:
+            return 'undefined'
+
+        if v.flavor == Variable.FLAVOR_RECURSIVE:
+            return 'recursive'
+        elif v.flavor == Variable.FLAVOR_SIMPLE:
+            return 'simple'
+
+        raise TODODataError('Variable %s flavor is neither simple nor recursive!' % varname)
+
+functions = {
+    'subst': None,
+    'patsubst': None,
+    'strip': None,
+    'findstring': None,
+    'filter': None,
+    'filter-out': None,
+    'sort': None,
+    'word': None,
+    'wordlist': None,
+    'words': None,
+    'firstword': None,
+    'lastword': None,
+    'dir': None,
+    'notdir': None,
+    'suffix': None,
+    'basename': None,
+    'addsuffix': None,
+    'addprefix': None,
+    'join': None,
+    'wildcard': None,
+    'realpath': None,
+    'abspath': None,
+    'if': None,
+    'or': None,
+    'and': None,
+    'foreach': None,
+    'call': None,
+    'value': None,
+    'eval': None,
+    'origin': None,
+    'flavor': FlavorFunction,
+    'shell': None,
+    'error': None,
+    'warning': None,
+    'info': None,
+}
 
 class Variable(object):
     """
