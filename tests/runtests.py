@@ -61,13 +61,16 @@ for makefile in makefiles:
     p = Popen(cline, stdout=PIPE, stderr=STDOUT)
     stdout, d = p.communicate()
     if p.returncode != returncode:
-        print "FAIL"
+        print "FAIL (returncode=%i)" % p.returncode
         print stdout
     elif stdout.find('TEST-FAIL') != -1:
         print "FAIL"
         print stdout
-    elif stdout.find('TEST-PASS') != -1:
-        print "PASS"
+    elif returncode == 0:
+        if stdout.find('TEST-PASS') != -1:
+            print "PASS"
+        else:
+            print "FAIL (no passing output)"
+            print stdout
     else:
-        print "FAIL (no passing output)"
-        print stdout
+        print "EXPECTED-FAIL"
