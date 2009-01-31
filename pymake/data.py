@@ -134,7 +134,7 @@ class Target(object):
         self.type = type
         self.rules = []
 
-    def addRule(self, rule):
+    def addrule(self, rule):
         rules.append(rule)
         # TODO: sanity-check that the rule either has the name of the target,
         # or that the pattern matches. Also maybe that the type matches
@@ -206,9 +206,15 @@ class Rule(object):
         self.target = target
         self._prerequisites = []
         self.variables = Variables(parent=makefile.variables)
+        self.commands = []
 
     def addprerequisite(self, d):
         self._prerequisites.append(d)
+
+    def addcommand(self, c):
+        """Append a command. Each command must be an Expansion."""
+        assert(isinstance(c, Expansion))
+        commands.append(c)
 
 class Makefile(object):
     """
