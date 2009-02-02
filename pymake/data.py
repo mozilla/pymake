@@ -4,7 +4,7 @@
 A representation of makefile data structures.
 """
 
-import logging
+import logging, re
 
 log = logging.getLogger('pymake.data')
 
@@ -29,18 +29,112 @@ class Function(object):
         Calls the function
         @returns string
     """
-    def __init__(self):
+    def __init__(self, loc):
         self._arguments = []
 
     def append(self, arg):
+        assert(isinstance(arg, Expansion))
         self._arguments.append(arg)
+
+class VariableRef(Function):
+    def __init__(sef, loc, vname):
+        self.loc = loc
+        assert(isinstance(vname, Expansion))
+        self.vname = vname
+        
+    def setup(self):
+        pass
+
+    def resolve(self, variables, setting):
+        vname = self.vname.resolve(variables, setting)
+        if vname == setting:
+            raise DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
+
+        flavor, source, value = variables.get(vname)
+        if value is None:
+            log.warning("%s: variable '%s' has no value" % (self.loc, vname))
+            return ''
+
+        return value.resolve(variables, setting)
+
+_ws = re.compile(r'\s+')
+
+def splitwords(s):
+    """Split string s into words delimited by whitespace."""
+
+    words = _ws.split(s)
+    for i in (0, -1):
+        if words[i] == '':
+            del words[i]
+    return words
+
+def getpatsubst(substfrom, substto):
+    """Given two strings %.from %.to, create regular expression search and
+    replace strings."""
+
+    fromprefix, frompercent, fromsuffix = substfrom.partition('%')
+    toprefix, topercent, tosuffix = substto.partition('%')
+
+    search = r'^%s%s%s$' % (re.escape(fromprefix),
+                            frompercent == '%' and '(.*)' or '',
+                            re.escape(fromsuffix))
+    replace = r'%s%s%s' % (toprefix.replace('\\', '\\\\'),
+                           frompercent == '%' and r'\g<1>' or topercent,
+                           tosuffix.replace('\\', '\\\\'))
+    return search, replace
+
+class SubstitutionRef(Function):
+    """$(VARNAME:.c=.o) and $(VARNAME:%.c=%.o)"""
+    def __init__(self, loc, varname, substfrom, substto):
+        self.loc = loc
+        self.vname = varname
+        self.substfrom = substfrom
+        self.substto = substto
+
+    def setup(self):
+        pass
+
+    def resolve(self, variables, setting):
+        vname = self.vname.resolve(variables, setting)
+        if vname == setting:
+            raise DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
+
+        substfrom = self.substfrom.resolve(variables, setting)
+        substto = self.substto.resolve(variables.setting)
+
+        flavor, source, value = variables.get(vname)
+        if value is None:
+            log.warning("%s: variable '%s' has no value" % (self.loc, vname))
+            return ''
+
+        evalue = value.resolve(variables, setting)
+        words = splitwords(evalue)
+        if substfrom.find('%') == -1:
+            substfrom = "%" + substfrom
+            substto = "%" + substto
+
+        search, replace = getpatsubst(substfrom, substto)
+
+        searchre = re.compile(search)
+        return " ".join((searchre.sub(word, replace)
+                         for word in words))
+
+class PatSubstFunction(Function):
+    def setup(self):
+        if len(self._arguments) < 3:
+            raise DataError("Not enough arguments for patsubst", self.loc)
+        if len(self._arguments) > 3:
+            log.warning("%s: patsubst function takes three arguments, got %i" % (self.loc, len(self._arguments)))
+
+    def resolve(self, variables, setting):
+        raise NotImplementedError()
 
 class FlavorFunction(Function):
     def setup(self):
         if len(self._arguments) < 1:
             raise SomeError
         if len(self._arguments) > 1:
-            log.warning("Function 'flavor' only takes one argument.")
+            log.warning("%s: flavor function takes one argument, got %i" % (self.loc, len(self._arguments)))
 
     def resolve(self, variables, setting):
         varname = self._arguments[0].resolve(variables, setting)
@@ -105,10 +199,13 @@ class Expansion(object):
         self._elements = []
 
     def append(self, object):
-        if not isinstance(object, (string, Function)):
-            throw DataError("Expansions can contain only strings or functions, got %s" % (type(object),))
+        if not isinstance(object, (str, Function)):
+            raise DataError("Expansions can contain only strings or functions, got %s" % (type(object),))
 
-        self._elements.append(object)
+        if isinstance(object, str) and isinstance(self._elements[-1], str):
+            self._elements[-1] += object
+        else:
+            self._elements.append(object)
 
     def resolve(self, variables, setting):
         """
@@ -161,7 +258,7 @@ class Variables(object):
         self._map = {}
         self.parent = parent
 
-    def get(name):
+    def get(self, name):
         """
         Get the value of a named variable. Returns a tuple (flavor, source, value)
 
@@ -188,7 +285,8 @@ class Variables(object):
 
         prevflavor, prevsource, prevvalue = self.get(name)
         if prevsource is not None and source > prevsource:
-            log.warning("Not setting variable '%s', set by higher-priority source to value '%s'" % (name, prevvalue))
+            # TODO: give a location for this warning
+            log.warning("not setting variable '%s', set by higher-priority source to value '%s'" % (name, prevvalue))
             return
 
         self._map[name] = (flavor, source, value)
