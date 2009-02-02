@@ -32,12 +32,15 @@ class Function(object):
     def __init__(self, loc):
         self._arguments = []
 
+    def __getitem__(self, key):
+        return self._arguments[key]
+
     def append(self, arg):
         assert(isinstance(arg, Expansion))
         self._arguments.append(arg)
 
 class VariableRef(Function):
-    def __init__(sef, loc, vname):
+    def __init__(self, loc, vname):
         self.loc = loc
         assert(isinstance(vname, Expansion))
         self.vname = vname
@@ -202,10 +205,15 @@ class Expansion(object):
         if not isinstance(object, (str, Function)):
             raise DataError("Expansions can contain only strings or functions, got %s" % (type(object),))
 
-        if isinstance(object, str) and isinstance(self._elements[-1], str):
+        if len(self._elements) and isinstance(object, str) and isinstance(self._elements[-1], str):
             self._elements[-1] += object
         else:
             self._elements.append(object)
+
+    def concat(self, e):
+        """Concatenate the other expansion on to this one."""
+        for i in e:
+            self.append(i)
 
     def resolve(self, variables, setting):
         """
@@ -218,6 +226,15 @@ class Expansion(object):
         """
         return ''.join( (isinstance(i, str) and i or i.resolve(variables, setting)
                          for i in self) )
+
+    def __len__(self):
+        return len(self._elements)
+
+    def __getitem__(self, key):
+        return self._elements[key]
+
+    def __iter__(self):
+        return iter(self._elements)
 
 class Target(object):
     """

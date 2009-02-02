@@ -19,10 +19,19 @@ nest parenthesized syntax.
 """
 
 import logging
+from pymake import data
 
 tabwidth = 4
 
 log = logging.getLogger('pymake.parser')
+
+class SyntaxError(Exception):
+    def __init__(self, message, loc):
+        self.message = message
+        self.loc = loc
+
+    def __str__(self):
+        return "%s: %s" % (self.loc, self.message)
 
 class Location(object):
     """
@@ -48,6 +57,9 @@ class Location(object):
         if newcol == self.column:
             return self
         return Location(self.path, self.line, newcol)
+
+    def __str__(self):
+        return "%s:%s:%s" % (self.path, self.line, self.column)
 
 def findcommenthash(line):
     """
@@ -123,6 +135,12 @@ class Data(object):
         # (dataoffset, location)
         self._locs = []
 
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, key):
+        return self.data[key]
+
     def append(self, data, loc):
         self._locs.append( (len(self.data), loc) )
         self.data += data
@@ -193,18 +211,135 @@ def parsestream(fd, filename, makefile):
 
                 lineno, line = fdlines.next()
 
-            
-
             parsemakedata(d)
 
-def _parsemakesyntax(d, stopshort):
+PARSESTATE_TOPLEVEL = 0    # at the top level
+PARSESTATE_FUNCTION = 1    # expanding a function call. data is function
+
+# For the following three, data is a tuple of Expansions: (varname, substfrom, substto)
+PARSESTATE_VARNAME = 2     # expanding a variable expansion.
+PARSESTATE_SUBSTFROM = 3   # expanding a variable expansion substitution "from" value
+PARSESTATE_SUBSTTO = 4     # expanding a variable expansion substitution "to" value
+
+class ParseStackFrame(object):
+    def __init__(self, parsestate, expansion, stopat, **kwargs):
+        self.parsestate = parsestate
+        self.expansion = expansion
+        self.stopat = stopat
+        for key, value in kwargs.iteritems():
+            setattr(self, key, value)
+
+def parsemakesyntax(d, stopat):
     """
     Given Data, parse it into a data.Expansion.
 
-    @param stopshort (boolean)
-        if False, all the remaining data is parsed, and the function returns
-        the Expansion.
+    @param stopat (sequence)
+        Indicate characters where toplevel parsing should stop.
  
-        if True, the data is parsed up to a makefile separator (equals sign
-        or colon), and the function returns (expansion, offset)
+    @return a tuple (expansion, stopoffset). If all the data is consumed, stopoffset will be -1
     """
+
+    stack = [
+        ParseStackFrame(PARSESTATE_TOPLEVEL, data.Expansion(), stopat)
+    ]
+
+    i = -1
+    limit = len(d)
+    while True:
+        i += 1
+        if i >= limit:
+            break
+
+        stacktop = stack[-1]
+        c = d[i]
+        if c == '$':
+            loc = d.getloc(i)
+            i += 1
+            c = d[i]
+
+            if c == '$':
+                stacktop.expansion.append('$')
+            elif c == '(':
+                # look forward for a function name
+                j = i + 1
+                while d[j] >= 'a' and d[j] <= 'z':
+                    j += 1
+                fname = d[i + 1:j]
+                if d[j].isspace() and fname in data.functions:
+                    fn = data.functions[fname](loc)
+                    stack.append(ParseStackFrame(PARSESTATE_FUNCTION,
+                                                 data.Expansion(), ',)',
+                                                 function=fn))
+                    # skip whitespace before the first argument
+                    i = j
+                    while d[i+1].isspace():
+                        i += 1
+                else:
+                    e = data.Expansion()
+                    stack.append(ParseStackFrame(PARSESTATE_VARNAME, e, ':)', loc=loc))
+            else:
+                fe = data.Expansion()
+                fe.append(d[i])
+                stacktop.expansion.append(data.VariableRef(loc, fe))
+                i += 1
+        elif c in stacktop.stopat:
+            if stacktop.parsestate == PARSESTATE_TOPLEVEL:
+                break
+
+            if stacktop.parsestate == PARSESTATE_FUNCTION:
+                if c == ',':
+                    stacktop.function.append(e)
+                    stacktop.expansion = data.Expansion()
+                elif c == ')':
+                    stacktop.function.append(stacktop.expansion)
+                    stacktop.function.setup()
+                    stack.pop()
+                    stack[-1].expansion.append(stacktop.function)
+                else:
+                    assert False, "Not reached, PARSESTATE_FUNCTION"
+            elif stacktop.parsestate == PARSESTATE_VARNAME:
+                if c == ':':
+                    stacktop.varname = stacktop.expansion
+                    stacktop.parsestate = PARSESTATE_SUBSTFROM
+                    stacktop.expansion = data.Expansion()
+                    stacktop.stopat = '=)'
+                elif c == ')':
+                    stack.pop()
+                    stack[-1].expansion.append(data.VariableRef(stacktop.loc, stacktop.expansion))
+                else:
+                    assert False, "Not reached, PARSESTATE_VARNAME"
+            elif stacktop.parsestate == PARSESTATE_SUBSTFROM:
+                if c == '=':
+                    stacktop.substfrom = stacktop.expansion
+                    stacktop.parsestate = PARSESTATE_SUBSTTO
+                    stacktop.expansion = data.Expansion()
+                    stacktop.stopat = ')'
+                elif c == ')':
+                    # A substitution of the form $(VARNAME:.ee) is probably a mistake, but make
+                    # parses it. Issue a warning. Combine the varname and substfrom expansions to
+                    # make the compatible varname. See tests/var-substitutions.mk SIMPLE3SUBSTNAME
+                    log.warning("%s: Variable reference looks like substitution without =" % (stacktop.loc, ))
+                    stacktop.varname.append(':')
+                    stacktop.varname.concat(stacktop.expansion)
+                    stack.pop()
+                    stack[-1].expansion.append(data.VariableRef(stacktop.loc, stacktop.varname))
+                else:
+                    assert False, "Not reached, PARSESTATE_SUBSTFROM"
+            elif stacktop.parsestate == PARSESTATE_SUBSTTO:
+                assert c == ')', "Not reached, PARSESTATE_SUBSTTO"
+
+                stack.pop()
+                stack[-1].expansion.append(data.SubstitutionRef(stacktop.loc, stacktop.varname,
+                                                                stacktop.substfrom, stacktop.expansion))
+            else:
+                assert False, "Unexpected parse state %s" % stacktop.parsestate
+        else:
+            stacktop.expansion.append(c)
+    if len(stack) != 1:
+        raise SyntaxError("Unterminated function call", d.getloc(len(d) - 1))
+
+    assert stack[0].parsestate == PARSESTATE_TOPLEVEL
+
+    if i >= limit:
+        i = -1
+    return stack[0].expansion, i
