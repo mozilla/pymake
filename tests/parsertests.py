@@ -68,35 +68,44 @@ class DataTest(TestBase):
                 self.assertEqual(loc.column, col, "data %r col, got %i expected %i" % (d.data, loc.column, col))
 
 class MakeSyntaxTest(TestBase):
-    # (string, stopat, stopoffset, expansion
+    # (string, startat, stopat, stopoffset, expansion
     testdata = (
-        ('hello world', '', -1, ['hello world']),
-        ('hello $W', '', -1, ['hello ',
-                              {'type': 'VariableRef',
-                               '.vname': ['W']}
-                              ]),
-        ('hello: world', ':=', 5, ['hello']),
-        ('h $(flavor FOO)', '', -1, ['h ',
-                                     {'type': 'FlavorFunction',
-                                      '[0]': ['FOO']}
-                                     ]),
-        ('hello$$world', '', -1, ['hello$world']),
-        ('echo $(VAR)', '', -1, ['echo ',
-                                 {'type': 'VariableRef',
-                                  '.vname': ['VAR']}
-                                 ]),
-        ('echo $($(VARNAME):.c=.o)', '', -1, ['echo ',
-                                              {'type': 'SubstitutionRef',
-                                               '.vname': [{'type': 'VariableRef',
-                                                           '.vname': ['VARNAME']}
-                                                          ],
-                                               '.substfrom': ['.c'],
-                                               '.substto': ['.o']}
-                                              ]),
-        ('  $(VAR:VAL) = $(VAL)', ':=', 13, ['  ',
-                                             {'type': 'VariableRef',
-                                              '.vname': ['VAR:VAL']},
-                                             ' ']),
+        ('hello world', 0, '', -1, ['hello world']),
+        ('hello $W', 0, '', -1,
+         ['hello ',
+          {'type': 'VariableRef',
+           '.vname': ['W']}
+          ]),
+        ('hello: world', 0, ':=', 5, ['hello']),
+        ('h $(flavor FOO)', 0, '', -1,
+         ['h ',
+          {'type': 'FlavorFunction',
+           '[0]': ['FOO']}
+          ]),
+        ('hello$$world', 0, '', -1, ['hello$world']),
+        ('echo $(VAR)', 0, '', -1,
+         ['echo ',
+          {'type': 'VariableRef',
+           '.vname': ['VAR']}
+          ]),
+        ('echo $($(VARNAME):.c=.o)', 0, '', -1,
+         ['echo ',
+          {'type': 'SubstitutionRef',
+           '.vname': [{'type': 'VariableRef',
+                       '.vname': ['VARNAME']}
+                      ],
+           '.substfrom': ['.c'],
+           '.substto': ['.o']}
+          ]),
+        ('  $(VAR:VAL) = $(VAL)', 0, ':=', 13,
+         ['  ',
+          {'type': 'VariableRef',
+           '.vname': ['VAR:VAL']},
+          ' ']),
+        ('  $(VAR:VAL) = $(VAL)', 15, '', -1,
+         [{'type': 'VariableRef',
+           '.vname': ['VAL']},
+         ]),
     )
 
     def compareRecursive(self, actual, expected, path):
@@ -127,11 +136,11 @@ class MakeSyntaxTest(TestBase):
                         raise Exception("Unexpected property at %s: %s" % (ipath, k))
 
     def runTest(self):
-        for s, stopat, stopoffset, expansion in self.testdata:
+        for s, startat, stopat, stopoffset, expansion in self.testdata:
             d = pymake.parser.Data()
             d.append(s, pymake.parser.Location('testdata', 1, 0))
 
-            a, stoppedat = pymake.parser.parsemakesyntax(d, stopat)
+            a, stoppedat = pymake.parser.parsemakesyntax(d, startat, stopat)
             self.compareRecursive(a, expansion, [])
             self.assertEqual(stoppedat, stopoffset)
 

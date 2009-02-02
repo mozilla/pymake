@@ -229,7 +229,7 @@ class ParseStackFrame(object):
         for key, value in kwargs.iteritems():
             setattr(self, key, value)
 
-def parsemakesyntax(d, stopat):
+def parsemakesyntax(d, startat, stopat):
     """
     Given Data, parse it into a data.Expansion.
 
@@ -243,7 +243,7 @@ def parsemakesyntax(d, stopat):
         ParseStackFrame(PARSESTATE_TOPLEVEL, data.Expansion(), stopat)
     ]
 
-    i = -1
+    i = startat - 1
     limit = len(d)
     while True:
         i += 1
