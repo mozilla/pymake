@@ -71,21 +71,6 @@ def splitwords(s):
             del words[i]
     return words
 
-def getpatsubst(substfrom, substto):
-    """Given two strings %.from %.to, create regular expression search and
-    replace strings."""
-
-    fromprefix, frompercent, fromsuffix = substfrom.partition('%')
-    toprefix, topercent, tosuffix = substto.partition('%')
-
-    search = r'^%s%s%s$' % (re.escape(fromprefix),
-                            frompercent == '%' and '(.*)' or '',
-                            re.escape(fromsuffix))
-    replace = r'%s%s%s' % (toprefix.replace('\\', '\\\\'),
-                           frompercent == '%' and r'\g<1>' or topercent,
-                           tosuffix.replace('\\', '\\\\'))
-    return search, replace
-
 class SubstitutionRef(Function):
     """$(VARNAME:.c=.o) and $(VARNAME:%.c=%.o)"""
     def __init__(self, loc, varname, substfrom, substto):
@@ -112,14 +97,13 @@ class SubstitutionRef(Function):
 
         evalue = value.resolve(variables, setting)
         words = splitwords(evalue)
-        if substfrom.find('%') == -1:
-            substfrom = "%" + substfrom
-            substto = "%" + substto
 
-        search, replace = getpatsubst(substfrom, substto)
+        f = Pattern(substfrom)
+        if not f.ispattern():
+            f = Pattern('%' + substfrom)
+            substto = '%' + substto
 
-        searchre = re.compile(search)
-        return " ".join((searchre.sub(replace, word)
+        return " ".join((f.subst(substto, word, False)
                          for word in words))
 
 class PatSubstFunction(Function):
@@ -245,10 +229,11 @@ class Target(object):
 
     def __init__(self, name):
         self.name = name
-        self.type = type
         self.rules = []
 
     def addrule(self, rule):
+        if len(rules) and rule.doublecolon != rules[0].doublecolon:
+            raise DataError("Cannot have single- and double-colon rules for the same target.")
         rules.append(rule)
         # TODO: sanity-check that the rule either has the name of the target,
         # or that the pattern matches. Also maybe that the type matches
@@ -308,22 +293,116 @@ class Variables(object):
 
         self._map[name] = (flavor, source, value)
 
+class Pattern(object):
+    """
+    A pattern is a string, possibly with a % substitution character. From the GNU make manual:
+
+    '%' characters in pattern rules can be quoted with precending backslashes ('\'). Backslashes that
+    would otherwise quote '%' charcters can be quoted with more backslashes. Backslashes that
+    quote '%' characters or other backslashes are removed from the pattern before it is compared t
+    file names or has a stem substituted into it. Backslashes that are not in danger of quoting '%'
+    characters go unmolested. For example, the pattern the\%weird\\%pattern\\ has `the%weird\' preceding
+    the operative '%' character, and 'pattern\\' following it. The final two backslashes are left alone
+    because they cannot affect any '%' character.
+
+    This insane behavior probably doesn't matter, but we're compatible just for shits and giggles.
+    """
+
+    def __init__(self, s):
+        r = []
+        i = 0
+        while i < len(s):
+            c = s[i]
+            if c == '\\':
+                nc = s[i + 1]
+                if nc == '%':
+                    r.append('%')
+                    i += 1
+                elif nc == '\\':
+                    r.append('\\')
+                    i += 1
+                else:
+                    r.append(c)
+            elif c == '%':
+                self.data = (''.join(r), s[i+1:])
+                return
+            else:
+                r.append(c)
+                i += 1
+
+        # This is different than (s,) because \% and \\ have been unescaped. Parsing patterns is
+        # context-sensitive!
+        self.data = (''.join(r),)
+
+    def ispattern(self):
+        return len(self.data) == 2
+
+    def __hash__(self):
+        return self.data.__hash__()
+
+    def __eq__(self, o):
+        assert isinstance(o, Pattern)
+        return self.data == o.data
+
+    def match(self, word):
+        """
+        Match this search pattern against a word (string).
+
+        @returns None if the word doesn't match, or the matching stem. If this is a %-less pattern,
+                      the stem will always be ''
+        """
+        if self.ispattern():
+            search = r'^%s(.*)%s$' % (re.escape(self.data[0]),
+                                      re.escape(self.data[1]))
+        else:
+            search = r'^%s()$' % (re.escape(self.data[0]),)
+
+        m = re.match(search, word)
+        if m is None:
+            return None
+        return m.group(1)
+
+    def resolve(self, stem):
+        if self.ispattern():
+            return self.data[0] + stem + self.data[1]
+
+        return self.data[0]
+
+    def subst(self, replacement, word, mustmatch):
+        """
+        Given a word, replace the current pattern with the replacement pattern, a la 'patsubst'
+
+        @param mustmatch If true and this pattern doesn't match the word, throw a DataError. Otherwise
+                         return word unchanged.
+        """
+        assert isinstance(replacement, str)
+
+        stem = self.match(word)
+        if stem is None:
+            if mustmatch:
+                raise DataError("target '%s' doesn't match pattern" % (word,))
+            return word
+
+        if not self.ispattern():
+            # if we're not a pattern, the replacement is not parsed as a pattern either
+            return replacement
+
+        return Pattern(replacement).resolve(stem)
+
 class Rule(object):
     """
-    A rule contains a list of prerequisites and a list of rules. It may also
+    A rule contains a list of prerequisites and a list of commands. It may also
     contain rule-specific variables.
     """
 
-    RULE_ORDINARY = 0
-    RULE_DOUBLECOLON = 1
-
-    def __init__(self, makefile):
-        self._prerequisites = []
+    def __init__(self, target, prereqs, makefile, doublecolon):
+        self._prerequisites = [prereqs]
+        self.doublecolon = doublecolon
         self.variables = Variables(parent=makefile.variables)
         self.commands = []
 
-    def addprerequisite(self, d):
-        self._prerequisites.append(d)
+    def addprerequisites(self, d):
+        self._prerequisites.extend(d)
 
     def addcommand(self, c):
         """Append a command. Each command must be an Expansion."""
@@ -340,6 +419,10 @@ class Makefile(object):
         self.variables = Variables()
         self._rules = []
 
-    def addRule(self, rule):
+    def addrule(self, rule):
         self._rules.append(rule)
         # TODO: add this to targets!
+
+    def gettarget(self, target):
+        return self._targets.setdefault(target, Target(target))
+

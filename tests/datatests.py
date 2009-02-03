@@ -19,16 +19,16 @@ class GetPatSubstTest(unittest.TestCase):
         ('%', '%.o', ' test.c test.o ', 'test.c.o test.o.o'),
         ('foo', 'bar', 'test foo bar', 'test bar bar'),
         ('foo', '%bar', 'test foo bar', 'test %bar bar'),
+        ('\\%', 'perc_%', '%path path', 'perc_path path'),
     )
 
     def runTest(self):
         for s, r, d, e in self.testdata:
             words = pymake.data.splitwords(d)
-            search, replace = pymake.data.getpatsubst(s, r)
-            sre = re.compile(search)
-            a = ' '.join((sre.sub(replace, word)
+            p = pymake.data.Pattern(s)
+            a = ' '.join((p.subst(r, word, False)
                           for word in words))
-            self.assertEqual(a, e, 'getpatsubst(%r) got %r (search=%r replace=%r)' % (d, a, search, replace))
+            self.assertEqual(a, e, 'Pattern(%r).subst(%r, %r)' % (s, r, d))
 
 if __name__ == '__main__':
     unittest.main()

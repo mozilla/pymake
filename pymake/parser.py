@@ -171,6 +171,46 @@ def _iterlines(fd):
             line = line[:-2] + '\n'
         yield (lineno, line)
 
+def skipwhitespace(d, offset):
+    """
+    Return the offset into data after skipping whitespace.
+    """
+    while d[offset].isspace():
+        offset += 1
+    return offset
+
+def setvariable(variables, vname, recursive, d, offset):
+    """
+    Parse the remaining data at d[offset] into a variables object.
+
+    @param vname an Expansion holding the variable name
+    """
+    vname = vname.resolve(variables, None)
+
+    # TODO: the following line is incorrect. The parser should strip trailing
+    # whitespace in the source text, instead of stripping the resolved value
+    # here. Because this is hard, and this is only a problem in the world
+    # of torture testcases, ignore the problem for now. See
+    # tests/var-ref.mk VAR6
+    vname = vname.rstrip()
+
+    if len(vname) == 0:
+        raise SyntaxError("Empty variable name", loc=d.getloc(offset))
+
+    offset = skipwhitespace(d, offset)
+    value, offset = parsemakesyntax(d, offset, '')
+    assert offset == -1
+
+    if recursive:
+        flavor = data.Variables.FLAVOR_SIMPLE
+    else:
+        flavor = data.Variables.FLAVOR_SIMPLE
+        e = data.Expansion()
+        e.append(value.resolve(variables, vname))
+        value = e
+        
+    variables.set(vname, flavor, data.Variables.SOURCE_MAKEFILE, value)
+
 def parsestream(fd, filename, makefile):
     """
     Parse a stream of makefile into a makefile data structure.
@@ -229,52 +269,42 @@ def parsestream(fd, filename, makefile):
             # if we encountered real makefile syntax, the current rule is over
             currule = None
 
-            if d[stoppedat] == '=':
-                vname = e.resolve(makefile.variables, None)
-
-                # TODO: the following line is incorrect. The parser should be
-                # responsible for stripping trailing white space in the source
-                # text, not in the resolved value. See tests/var-ref.mk VAR6
-                vname = vname.rstrip()
-
-                if len(vname) == 0:
-                    raise SyntaxError("Empty variable name", loc=d.getloc(0))
-                
-                stoppedat += 1
-                while d[stoppedat].isspace():
-                    stoppedat += 1
-
-                value, end = parsemakesyntax(d, stoppedat, '')
-                assert end == -1
-
-                makefile.variables.set(vname, data.Variables.FLAVOR_RECURSIVE,
-                                       data.Variables.SOURCE_MAKEFILE, value)
+            if d[stoppedat] == '=' or d[stoppedat:stoppedat+2] == ':=':
+                setvariable(makefile.variables, e, d[stoppedat] == '=',
+                            d, stoppedat + (d[stoppedat] == '=' and 1 or 2))
             else:
                 assert d[stoppedat] == ':'
-                if d[stoppedat + 1] == '=':
-                    # simple variable assignment
-                    vname = e.resolve(makefile.variables, None)
 
-                    # TODO, see above
-                    vname = vname.rstrip()
-
-                    if len(vname) == 0:
-                        raise SyntaxError("Empty variable name", loc=d.getloc(0))
-
-                    stoppedat += 2
-                    while d[stoppedat].isspace():
-                        stoppedat += 1
-                    value, end = parsemakesyntax(d, stoppedat, '')
-                    assert end == -1
-
-                    e = data.Expansion()
-                    e.append(value.resolve(makefile.variables, vname))
-
-                    makefile.variables.set(vname, data.Variables.FLAVOR_SIMPLE,
-                                           data.Variables.SOURCE_MAKEFILE, e)
+                if d[stoppedat+1] == ':':
+                    doublecolon = True
+                    stoppedat += 1
                 else:
-                    # it's a rule
-                    raise NotImplementedError("no rules yet")
+                    doublecolon = False
+
+                # `e` is a target or target pattern, which can end up as
+                # * a rule
+                # * a pattern rule
+                # * a static pattern rule
+                # * a target-specific variable definition
+                # any of the rules may have order-only prerequisites
+                # delimited by |, and a command delimited by ;
+                targets = e.resolve(makefile.variables, None)
+                targetlist = [makefile.gettarget(t)
+                              for t in data.splitwords(targets)]
+
+                stoppedat += 1
+                e, stoppedat = parsemakesyntax(d, stoppedat, ':=|;')
+                if stoppedat == -1:
+                    prereqs = e.resolve(makefile.variables, None)
+                    prereqlist = data.splitwords(prereqs)
+                    currule = data.Rule(makefile, doublecolon)
+                    currule.addprerequisites(prereqs)
+                elif d[stoppedat] == '=' or d[stoppedat:stoppedat+2] == ':=':
+                    for target in targetlist:
+                        setvariable(target.variables, e, d[stoppedat] == '=',
+                                    d, stoppedat + d[stoppedat] == '=' and 1 or 2)
+                else:
+                    raise NotImplementedError()
 
 PARSESTATE_TOPLEVEL = 0    # at the top level
 PARSESTATE_FUNCTION = 1    # expanding a function call. data is function
