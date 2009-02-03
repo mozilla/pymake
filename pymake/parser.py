@@ -205,11 +205,12 @@ def parsestream(fd, filename, makefile):
             while True:
                 line, colno = lstripcount(line)
                 continues = iscontinuation(line)
+
                 if continues:
                     line = line[:-2].rstrip() + ' '
                 else:
-                    line = line[:-1] # just take the newline
-                d.append(line, Location(filename, lineno, 0))
+                    line = line[:-1] # just strip the newline
+                d.append(line, Location(filename, lineno, colno))
 
                 if not continues:
                     break
@@ -266,8 +267,11 @@ def parsestream(fd, filename, makefile):
                     value, end = parsemakesyntax(d, stoppedat, '')
                     assert end == -1
 
+                    e = data.Expansion()
+                    e.append(value.resolve(makefile.variables, vname))
+
                     makefile.variables.set(vname, data.Variables.FLAVOR_SIMPLE,
-                                           data.Variables.SOURCE_MAKEFILE, value)
+                                           data.Variables.SOURCE_MAKEFILE, e)
                 else:
                     # it's a rule
                     raise NotImplementedError("no rules yet")

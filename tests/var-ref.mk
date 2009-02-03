@@ -2,6 +2,7 @@ VAR = value
 VAR2 == value
 
 VAR5 = $(NULL) $(NULL)
+VARC = value # comment
 
 $(VAR3)
   $(VAR4)  
@@ -13,4 +14,5 @@ all:
 	test "$( VAR)" = ""
 	test "$(VAR2)" = "= value"
 	test "$(VAR6 )" = "val6"
+	test "$(VARC)" = "value "
 	@echo TEST-PASS

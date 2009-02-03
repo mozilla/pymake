@@ -152,11 +152,17 @@ class VariableTest(TestBase):
     VARNAME = TESTVAR
     $(VARNAME) = testvalue
     $(VARNAME:VAR=VAL) = moretesting
+    IMM := $(VARNAME) # this is a comment
+    MULTIVAR = val1 \\
+  val2
+    VARNAME = newname
     """
     expected = {'VAR': 'value',
-                'VARNAME': 'TESTVAR',
+                'VARNAME': 'newname',
                 'TESTVAR': 'testvalue',
                 'TESTVAL': 'moretesting',
+                'IMM': 'TESTVAR ',
+                'MULTIVAR': 'val1 val2',
                 'UNDEF': None}
 
     def runTest(self):
