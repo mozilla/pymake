@@ -3,6 +3,8 @@ import pymake.data
 import unittest
 import logging
 
+from cStringIO import StringIO
+
 class TestBase(unittest.TestCase):
     def assertEqual(self, a, b, msg=""):
         """Actually print the values which weren't equal, if things don't work out!"""
@@ -143,6 +145,30 @@ class MakeSyntaxTest(TestBase):
             a, stoppedat = pymake.parser.parsemakesyntax(d, startat, stopat)
             self.compareRecursive(a, expansion, [])
             self.assertEqual(stoppedat, stopoffset)
+
+class VariableTest(TestBase):
+    testdata = """
+    VAR = value
+    VARNAME = TESTVAR
+    $(VARNAME) = testvalue
+    $(VARNAME:VAR=VAL) = moretesting
+    """
+    expected = {'VAR': 'value',
+                'VARNAME': 'TESTVAR',
+                'TESTVAR': 'testvalue',
+                'TESTVAL': 'moretesting',
+                'UNDEF': None}
+
+    def runTest(self):
+        m = pymake.data.Makefile()
+        stream = StringIO(self.testdata)
+        pymake.parser.parsestream(stream, 'testdata', m)
+        for k, v in self.expected.iteritems():
+            flavor, source, val = m.variables.get(k)
+            if val is None:
+                self.assertEqual(val, v, 'variable named %s' % k)
+            else:
+                self.assertEqual(val.resolve(m.variables, None), v, 'variable named %s' % k)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)

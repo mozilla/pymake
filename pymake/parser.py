@@ -145,6 +145,11 @@ class Data(object):
         self._locs.append( (len(self.data), loc) )
         self.data += data
 
+    def stripcomment(self):
+        cloc = findcommenthash(self.data)
+        if cloc > 0:
+            self.data = self.data[:cloc]
+
     def getloc(self, offset):
         """
         Get the location of an offset within data.
@@ -190,8 +195,6 @@ def parsestream(fd, filename, makefile):
                 d.append(line, Location(filename, lineno, startcol))
             currule.addcommand(parsecommand(d))
         else:
-            currule = None
-
             # To parse Makefile syntax, we first strip leading whitespace and
             # join continued lines, then look for initial keywords. If there
             # are no keywords, it's either setting a variable or writing a
@@ -204,6 +207,8 @@ def parsestream(fd, filename, makefile):
                 continues = iscontinuation(line)
                 if continues:
                     line = line[:-2].rstrip() + ' '
+                else:
+                    line = line[:-1] # just take the newline
                 d.append(line, Location(filename, lineno, 0))
 
                 if not continues:
@@ -211,7 +216,61 @@ def parsestream(fd, filename, makefile):
 
                 lineno, line = fdlines.next()
 
-            parsemakedata(d)
+            d.stripcomment()
+
+            e, stoppedat = parsemakesyntax(d, 0, ':=')
+            if stoppedat == -1:
+                v = e.resolve(makefile.variables, None)
+                if v.strip() != '':
+                    raise SyntaxError("Bad syntax: non-empty line is not a variable assignment or rule.", loc=d.getloc(0))
+                continue
+
+            # if we encountered real makefile syntax, the current rule is over
+            currule = None
+
+            if d[stoppedat] == '=':
+                vname = e.resolve(makefile.variables, None)
+
+                # TODO: the following line is incorrect. The parser should be
+                # responsible for stripping trailing white space in the source
+                # text, not in the resolved value. See tests/var-ref.mk VAR6
+                vname = vname.rstrip()
+
+                if len(vname) == 0:
+                    raise SyntaxError("Empty variable name", loc=d.getloc(0))
+                
+                stoppedat += 1
+                while d[stoppedat].isspace():
+                    stoppedat += 1
+
+                value, end = parsemakesyntax(d, stoppedat, '')
+                assert end == -1
+
+                makefile.variables.set(vname, data.Variables.FLAVOR_RECURSIVE,
+                                       data.Variables.SOURCE_MAKEFILE, value)
+            else:
+                assert d[stoppedat] == ':'
+                if d[stoppedat + 1] == '=':
+                    # simple variable assignment
+                    vname = e.resolve(makefile.variables, None)
+
+                    # TODO, see above
+                    vname = vname.rstrip()
+
+                    if len(vname) == 0:
+                        raise SyntaxError("Empty variable name", loc=d.getloc(0))
+
+                    stoppedat += 2
+                    while d[stoppedat].isspace():
+                        stoppedat += 1
+                    value, end = parsemakesyntax(d, stoppedat, '')
+                    assert end == -1
+
+                    makefile.variables.set(vname, data.Variables.FLAVOR_SIMPLE,
+                                           data.Variables.SOURCE_MAKEFILE, value)
+                else:
+                    # it's a rule
+                    raise NotImplementedError("no rules yet")
 
 PARSESTATE_TOPLEVEL = 0    # at the top level
 PARSESTATE_FUNCTION = 1    # expanding a function call. data is function

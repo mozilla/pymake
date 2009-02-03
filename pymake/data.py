@@ -103,7 +103,7 @@ class SubstitutionRef(Function):
             raise DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
 
         substfrom = self.substfrom.resolve(variables, setting)
-        substto = self.substto.resolve(variables.setting)
+        substto = self.substto.resolve(variables, setting)
 
         flavor, source, value = variables.get(vname)
         if value is None:
@@ -119,7 +119,7 @@ class SubstitutionRef(Function):
         search, replace = getpatsubst(substfrom, substto)
 
         searchre = re.compile(search)
-        return " ".join((searchre.sub(word, replace)
+        return " ".join((searchre.sub(replace, word)
                          for word in words))
 
 class PatSubstFunction(Function):
@@ -290,11 +290,11 @@ class Variables(object):
 
         return (None, None, None)
 
-    def set(name, flavor, source, value):
-        if not flavor in (FLAVOR_RECURSIVE, FLAVOR_SIMPLE):
+    def set(self, name, flavor, source, value):
+        if not flavor in (self.FLAVOR_RECURSIVE, self.FLAVOR_SIMPLE):
             raise DataError("Unexpected variable flavor: %s" % (flavor,))
 
-        if not source in (SOURCE_OVERRIDE, SOURCE_MAKEFILE, SOURCE_AUTOMATIC):
+        if not source in (self.SOURCE_OVERRIDE, self.SOURCE_MAKEFILE, self.SOURCE_AUTOMATIC):
             raise DataError("Unexpected variable source: %s" % (source,))
 
         if not isinstance(value, Expansion):
@@ -310,15 +310,14 @@ class Variables(object):
 
 class Rule(object):
     """
-    A rule contains a target and a list of prerequisites. It may also
+    A rule contains a list of prerequisites and a list of rules. It may also
     contain rule-specific variables.
     """
 
     RULE_ORDINARY = 0
     RULE_DOUBLECOLON = 1
 
-    def __init__(self, target, makefile):
-        self.target = target
+    def __init__(self, makefile):
         self._prerequisites = []
         self.variables = Variables(parent=makefile.variables)
         self.commands = []
