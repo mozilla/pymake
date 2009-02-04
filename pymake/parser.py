@@ -179,14 +179,18 @@ def skipwhitespace(d, offset):
         offset += 1
     return offset
 
-def setvariable(variables, vname, recursive, d, offset):
+def parsevarvalue(d, offset):
+    offset = skipwhitespace(d, offset)
+    value, offset = parsemakesyntax(d, offset, '')
+    assert offset == -1
+    return value
+
+def setvariable(variables, vname, recursive, value):
     """
     Parse the remaining data at d[offset] into a variables object.
 
-    @param vname an Expansion holding the variable name
+    @param vname an string holding the variable name
     """
-    vname = vname.resolve(variables, None)
-
     # TODO: the following line is incorrect. The parser should strip trailing
     # whitespace in the source text, instead of stripping the resolved value
     # here. Because this is hard, and this is only a problem in the world
@@ -196,10 +200,6 @@ def setvariable(variables, vname, recursive, d, offset):
 
     if len(vname) == 0:
         raise SyntaxError("Empty variable name", loc=d.getloc(offset))
-
-    offset = skipwhitespace(d, offset)
-    value, offset = parsemakesyntax(d, offset, '')
-    assert offset == -1
 
     if recursive:
         flavor = data.Variables.FLAVOR_SIMPLE
@@ -270,8 +270,9 @@ def parsestream(fd, filename, makefile):
             currule = None
 
             if d[stoppedat] == '=' or d[stoppedat:stoppedat+2] == ':=':
-                setvariable(makefile.variables, e, d[stoppedat] == '=',
-                            d, stoppedat + (d[stoppedat] == '=' and 1 or 2))
+                vname = e.resolve(makefile.variables, None)
+                value = parsevarvalue(d, stoppedat + (d[stoppedat] == '=' and 1 or 2))
+                setvariable(makefile.variables, vname, d[stoppedat] == '=', value)
             else:
                 assert d[stoppedat] == ':'
 
@@ -290,6 +291,9 @@ def parsestream(fd, filename, makefile):
                 # any of the rules may have order-only prerequisites
                 # delimited by |, and a command delimited by ;
                 targets = map(data.Pattern, data.splitwords(e.resolve(makefile.variables, None)))
+                if len(targets) == 0:
+                    raise SyntaxError("No targets in rule", g.getloc(0))
+
                 ispatterns = set((t.ispattern() for t in targets))
                 if len(ispatterns) == 2:
                     raise SyntaxError("Mixed implicit and normal rule", d.getloc(0))
@@ -306,11 +310,12 @@ def parsestream(fd, filename, makefile):
                         currule = data.Rule(prereqs, doublecolon)
                         for t in targets:
                             makefile.gettarget(t.gettarget()).addrule(currule)
+                        makefile.foundtarget(targets[0].gettarget())
                 elif d[stoppedat] == '=' or d[stoppedat:stoppedat+2] == ':=':
-                    # TODO: handle pattern-specific variables
+                    vname = e.resolve(makefile.variables, None)
+                    value = parsevarvalue(d, stoppedat + d[stoppedat] == '=' and 1 or 2)
                     for target in targetlist:
-                        setvariable(target.variables, e, d[stoppedat] == '=',
-                                    d, stoppedat + d[stoppedat] == '=' and 1 or 2)
+                        setvariable(makefile.getpatternvariables(target), vname, d[stoppedat] == '=', value)
                 else:
                     raise NotImplementedError()
 
