@@ -67,6 +67,8 @@ def splitwords(s):
 
     words = _ws.split(s)
     for i in (0, -1):
+        if len(words) == 0:
+            break
         if words[i] == '':
             del words[i]
     return words

@@ -139,6 +139,8 @@ class Data(object):
         return len(self.data)
 
     def __getitem__(self, key):
+        if key >= len(self.data):
+            return None
         return self.data[key]
 
     def append(self, data, loc):
@@ -204,6 +206,31 @@ def setvariable(variables, vname, recursive, value):
         value = e
         
     variables.set(vname, flavor, data.Variables.SOURCE_MAKEFILE, value)
+
+def parsecommandlineargs(makefile, args):
+    """
+    Given a set of arguments from a command-line invocation of make,
+    parse out the variable definitions and return the rest as targets.
+    """
+
+    r = []
+    for a in args:
+        eqpos = a.find('=')
+        if eqpos != -1:
+            if a[eqpos-1] == ':':
+                vname = a[:eqpos-1]
+            else:
+                vname = a[:eqpos]
+            vname = vname.strip()
+            valtext = a[eqpos+1:].lstrip()
+            d = Data()
+            d.append(valtext, Location('<command-line>', 1, eqpos + 1))
+            value = parsemakesyntax(d, 0, '')
+            setvariable(makefile.variables, vname, a[eqpos-1] == ':', value)
+        else:
+            r.append(a)
+
+    return r
 
 def parsestream(fd, filename, makefile):
     """
