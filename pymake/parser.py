@@ -314,8 +314,12 @@ def parsestream(fd, filename, makefile):
                 elif d[stoppedat] == '=' or d[stoppedat:stoppedat+2] == ':=':
                     vname = e.resolve(makefile.variables, None)
                     value = parsevarvalue(d, stoppedat + d[stoppedat] == '=' and 1 or 2)
-                    for target in targetlist:
-                        setvariable(makefile.getpatternvariables(target), vname, d[stoppedat] == '=', value)
+                    if ispattern:
+                        for target in targetlist:
+                            setvariable(makefile.getpatternvariables(target), vname, d[stoppedat] == '=', value)
+                    else:
+                        for target in targetlist:
+                            setvariable(makefile.gettarget(target.gettarget()).variables, vname, d[stoppedat] == '=', value)
                 else:
                     raise NotImplementedError()
 
