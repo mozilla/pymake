@@ -220,24 +220,6 @@ class Expansion(object):
     def __iter__(self):
         return iter(self._elements)
 
-class Target(object):
-    """
-    A target is a file or arbitrary string. It contains a list of Rules.
-
-    Note: a target may contain a pattern Rule.
-    """
-
-    def __init__(self, name):
-        self.name = name
-        self.rules = []
-
-    def addrule(self, rule):
-        if len(rules) and rule.doublecolon != rules[0].doublecolon:
-            raise DataError("Cannot have single- and double-colon rules for the same target.")
-        rules.append(rule)
-        # TODO: sanity-check that the rule either has the name of the target,
-        # or that the pattern matches. Also maybe that the type matches
-
 class Variables(object):
     """
     A mapping from variable names to variables. Variables have flavor, source, and value. The value is an 
@@ -344,6 +326,10 @@ class Pattern(object):
         assert isinstance(o, Pattern)
         return self.data == o.data
 
+    def gettarget(self):
+        assert not self.ispattern()
+        return self.data[0]
+
     def match(self, word):
         """
         Match this search pattern against a word (string).
@@ -389,40 +375,95 @@ class Pattern(object):
 
         return Pattern(replacement).resolve(stem)
 
+class Target(object):
+    """
+    An actual (non-pattern) target.
+
+    It holds target-specific variables and a list of rules. It may also point to a parent
+    PatternTarget, if this target is being created by an implicit rule.
+
+    The rules associated with this target may be Rule instances or, in the case of static pattern
+    rules, PatternRule instances.
+    """
+
+    def __init__(self, target):
+        assert isinstance(target, str)
+        self.target = target
+        self.rules = []
+
+        # We don't know, up front, what the parent context is going to be.
+        # If this target ends up with explicit rules, the parent will be the makefile variables.
+        # If this target ends up being constructed by an implicit rule, the parent will be the
+        # implicit rule variables. See tests/target-specific.mk
+        self.variables = Variables()
+
+    def addrule(self, rule):
+        if len(rules) and rule.doublecolon != rules[0].doublecolon:
+            # TODO: better location for this error
+            raise DataError("Cannot have single- and double-colon rules for the same target.")
+
+        if isinstance(rule, PatternRule):
+            if len(rule.targetpatterns) != 1:
+                # TODO: better location
+                raise DataError("Static pattern rules must only have one target pattern")
+            if rule.targetpatterns[0].match(self.target) is None:
+                # TODO: better location
+                raise DataError("Static pattern rule doesn't match target")
+
+        rules.append(rule)
+
 class Rule(object):
     """
     A rule contains a list of prerequisites and a list of commands. It may also
-    contain rule-specific variables.
+    contain rule-specific variables. This rule may be associated with multiple targets.
     """
 
-    def __init__(self, target, prereqs, makefile, doublecolon):
-        self._prerequisites = [prereqs]
+    def __init__(self, prereqs, doublecolon):
+        self._prerequisites = prereqs
         self.doublecolon = doublecolon
-        self.variables = Variables(parent=makefile.variables)
         self.commands = []
 
-    def addprerequisites(self, d):
-        self._prerequisites.extend(d)
-
     def addcommand(self, c):
-        """Append a command. Each command must be an Expansion."""
+        """Append a command expansion."""
         assert(isinstance(c, Expansion))
         commands.append(c)
 
+class PatternRule(object):
+    """
+    An implicit rule or static pattern rule containing target patterns, prerequisite patterns,
+    and a list of commands.
+    """
+
+    def __init__(self, targetpatterns, prereqpatterns, doublecolon):
+        self.targetpatterns = targetpatterns
+        self._prerequisites = prerequisites
+        self.doublecolon = doublecolon
+        self.commands = []
+
+    def addcommand(self, c):
+        asssert(isinstance(c, Expansion))
+        commands.append(c)
+
 class Makefile(object):
-    """
-    A Makefile is a variable dict, a target dict, and a list of the rules and pattern rules.
-    """
-
     def __init__(self):
-        self._targets = {}
+        self.defaulttarget = None
         self.variables = Variables()
-        self._rules = []
+        self._targets = {}
+        self._patternvariables = {}
+        self._implicitrules = []
 
-    def addrule(self, rule):
-        self._rules.append(rule)
-        # TODO: add this to targets!
+    def getpatternvariables(self, pattern):
+        assert isinstance(pattern, Pattern)
+        return self._patternvariables.setdefault(pattern, Variables())
 
     def gettarget(self, target):
-        return self._targets.setdefault(target, Target(target))
+        assert isinstance(target, str)
+        t = self._targets.get(target, None)
+        if t is None:
+            t = Target(target)
+            self._targets[target] = t
+        return t
 
+    def appendimplicitrule(self, rule):
+        assert isinstance(rule, PatternRule)
+        self._implicitrules.append(rule)

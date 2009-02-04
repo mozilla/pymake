@@ -281,25 +281,33 @@ def parsestream(fd, filename, makefile):
                 else:
                     doublecolon = False
 
-                # `e` is a target or target pattern, which can end up as
+                # `e` is targets or target patterns, which can end up as
                 # * a rule
-                # * a pattern rule
+                # * an implicit rule
                 # * a static pattern rule
                 # * a target-specific variable definition
+                # * a pattern-specific variable definition
                 # any of the rules may have order-only prerequisites
                 # delimited by |, and a command delimited by ;
-                targets = e.resolve(makefile.variables, None)
-                targetlist = [makefile.gettarget(t)
-                              for t in data.splitwords(targets)]
+                targets = map(data.Pattern, data.splitwords(e.resolve(makefile.variables, None)))
+                ispatterns = set((t.ispattern() for t in targets))
+                if len(ispatterns) == 2:
+                    raise SyntaxError("Mixed implicit and normal rule", d.getloc(0))
+                ispattern, = ispatterns
 
                 stoppedat += 1
                 e, stoppedat = parsemakesyntax(d, stoppedat, ':=|;')
                 if stoppedat == -1:
-                    prereqs = e.resolve(makefile.variables, None)
-                    prereqlist = data.splitwords(prereqs)
-                    currule = data.Rule(makefile, doublecolon)
-                    currule.addprerequisites(prereqs)
+                    prereqs = data.splitwords(e.resolve(makefile.variables, None))
+                    if ispattern:
+                        currule = data.PatternRule(targets, map(data.Pattern, prereqs), doublecolon)
+                        makefile.appendimplicitrule(currule)
+                    else:
+                        currule = data.Rule(prereqs, doublecolon)
+                        for t in targets:
+                            makefile.gettarget(t.gettarget()).addrule(currule)
                 elif d[stoppedat] == '=' or d[stoppedat:stoppedat+2] == ':=':
+                    # TODO: handle pattern-specific variables
                     for target in targetlist:
                         setvariable(target.variables, e, d[stoppedat] == '=',
                                     d, stoppedat + d[stoppedat] == '=' and 1 or 2)
