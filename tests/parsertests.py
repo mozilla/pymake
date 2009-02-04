@@ -183,6 +183,9 @@ TSPEC = dummy
 all: TSPEC = myrule
 all:: test test2 $(VAR)
 	echo "Hello, $(TSPEC)"
+
+%.o: %.c
+	$(CC) -o $@ $<
 """
 
     def runTest(self):
@@ -190,6 +193,7 @@ all:: test test2 $(VAR)
         stream = StringIO(self.testdata)
         pymake.parser.parsestream(stream, 'testdata', m)
         self.assertEqual(m.defaulttarget, 'all', "Default target")
+
         self.assertTrue(m.hastarget('all'), "Has 'all' target")
         target = m.gettarget('all')
         rules = target.rules
@@ -199,7 +203,16 @@ all:: test test2 $(VAR)
         commands = rules[0].commands
         self.assertEqual(len(commands), 1, "Number of commands")
         expanded = commands[0].resolve(target.variables, None)
-        self.assertEquals(expanded, 'echo "Hello, myrule"')
+        self.assertEqual(expanded, 'echo "Hello, myrule"')
+
+        irules = m.implicitrules
+        self.assertEqual(len(irules), 1, "Number of implicit rules")
+
+        irule = irules[0]
+        self.assertEqual(len(irule.targetpatterns), 1, "%.o target pattern count")
+        self.assertEqual(len(irule.prerequisites), 1, "%.o prerequisite count")
+        self.assertEqual(irule.targetpatterns[0].match('foo.o'), 'foo', "%.o stem")
+        self.assertEqual(irule.prerequisites[0].resolve(irule.targetpatterns[0].match('foo.o')), 'foo.c')
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)

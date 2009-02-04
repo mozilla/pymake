@@ -36,7 +36,7 @@ class Function(object):
         return self._arguments[key]
 
     def append(self, arg):
-        assert(isinstance(arg, Expansion))
+        assert isinstance(arg, Expansion)
         self._arguments.append(arg)
 
 class VariableRef(Function):
@@ -452,15 +452,15 @@ class PatternRule(object):
     and a list of commands.
     """
 
-    def __init__(self, targetpatterns, prereqpatterns, doublecolon):
+    def __init__(self, targetpatterns, prerequisites, doublecolon):
         self.targetpatterns = targetpatterns
-        self._prerequisites = prerequisites
+        self.prerequisites = prerequisites
         self.doublecolon = doublecolon
         self.commands = []
 
     def addcommand(self, c):
-        asssert(isinstance(c, Expansion))
-        commands.append(c)
+        assert isinstance(c, Expansion)
+        self.commands.append(c)
 
 class Makefile(object):
     def __init__(self):
@@ -468,7 +468,7 @@ class Makefile(object):
         self.variables = Variables()
         self._targets = {}
         self._patternvariables = {}
-        self._implicitrules = []
+        self.implicitrules = []
 
     def foundtarget(self, t):
         """
@@ -495,4 +495,4 @@ class Makefile(object):
 
     def appendimplicitrule(self, rule):
         assert isinstance(rule, PatternRule)
-        self._implicitrules.append(rule)
+        self.implicitrules.append(rule)
