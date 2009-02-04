@@ -176,6 +176,11 @@ functions = {
     'info': None,
 }
 
+def _if_else(c, t, f):
+    if c:
+        return t()
+    return f()
+
 class Expansion(object):
     """
     A representation of expanded data, such as that for a recursively-expanded variable, a command, etc.
@@ -189,15 +194,30 @@ class Expansion(object):
         if not isinstance(object, (str, Function)):
             raise DataError("Expansions can contain only strings or functions, got %s" % (type(object),))
 
-        if len(self._elements) and isinstance(object, str) and isinstance(self._elements[-1], str):
-            self._elements[-1] += object
+        if len(self) and isinstance(object, str) and isinstance(self[-1], str):
+            self[-1] += object
         else:
             self._elements.append(object)
 
-    def concat(self, e):
+    def concat(self, o):
         """Concatenate the other expansion on to this one."""
-        for i in e:
-            self.append(i)
+        if len(self) > 0 and len(o) > 0 and isinstance(self[-1], str) and isinstance(o[0], str):
+            self[-1] += o[0]
+            self._elements.extend(o[1:])
+        else:
+            self._elements.extend(o)
+
+    def lstrip(self):
+        """Strip leading literal whitespace from this expansion."""
+        if len(self) > 0 and isinstance(self[0], str):
+            assert len(self) == 1 or not isinstance(self[1], str), "Strings didn't fold"
+            self[0] = self[0].lstrip()
+
+    def rstrip(self):
+        """Strip trailing literal whitespace from this expansion."""
+        if len(self) > 0 and isinstance(self[-1], str):
+            assert len(self) == 1 or not isinstance(self[-2], str), "Strings didn't fold"
+            self[-1] = self[-1].rstrip()
 
     def resolve(self, variables, setting):
         """
@@ -208,14 +228,17 @@ class Expansion(object):
                being set, if any. Setting variables must avoid self-referential
                loops.
         """
-        return ''.join( (isinstance(i, str) and i or i.resolve(variables, setting)
-                         for i in self) )
+        return ''.join( (_if_else(isinstance(i, str), lambda: i, lambda: i.resolve(variables, setting))
+                         for i in self._elements) )
 
     def __len__(self):
         return len(self._elements)
 
     def __getitem__(self, key):
         return self._elements[key]
+
+    def __setitem__(self, key, v):
+        self._elements[key] = v
 
     def __iter__(self):
         return iter(self._elements)
@@ -386,19 +409,14 @@ class Target(object):
     rules, PatternRule instances.
     """
 
-    def __init__(self, target):
+    def __init__(self, target, makefile):
         assert isinstance(target, str)
         self.target = target
         self.rules = []
-
-        # We don't know, up front, what the parent context is going to be.
-        # If this target ends up with explicit rules, the parent will be the makefile variables.
-        # If this target ends up being constructed by an implicit rule, the parent will be the
-        # implicit rule variables. See tests/target-specific.mk
-        self.variables = Variables()
+        self.variables = Variables(makefile.variables)
 
     def addrule(self, rule):
-        if len(rules) and rule.doublecolon != rules[0].doublecolon:
+        if len(self.rules) and rule.doublecolon != rules[0].doublecolon:
             # TODO: better location for this error
             raise DataError("Cannot have single- and double-colon rules for the same target.")
 
@@ -410,7 +428,7 @@ class Target(object):
                 # TODO: better location
                 raise DataError("Static pattern rule doesn't match target")
 
-        rules.append(rule)
+        self.rules.append(rule)
 
 class Rule(object):
     """
@@ -419,14 +437,14 @@ class Rule(object):
     """
 
     def __init__(self, prereqs, doublecolon):
-        self._prerequisites = prereqs
+        self.prerequisites = prereqs
         self.doublecolon = doublecolon
         self.commands = []
 
     def addcommand(self, c):
         """Append a command expansion."""
         assert(isinstance(c, Expansion))
-        commands.append(c)
+        self.commands.append(c)
 
 class PatternRule(object):
     """
@@ -464,11 +482,14 @@ class Makefile(object):
         assert isinstance(pattern, Pattern)
         return self._patternvariables.setdefault(pattern, Variables())
 
+    def hastarget(self, target):
+        return target in self._targets
+
     def gettarget(self, target):
         assert isinstance(target, str)
         t = self._targets.get(target, None)
         if t is None:
-            t = Target(target)
+            t = Target(target, self)
             self._targets[target] = t
         return t
 

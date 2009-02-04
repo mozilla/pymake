@@ -179,8 +179,9 @@ def skipwhitespace(d, offset):
         offset += 1
     return offset
 
-def parsevarvalue(d, offset):
-    offset = skipwhitespace(d, offset)
+def parsetoend(d, offset, skipws):
+    if skipws:
+        offset = skipwhitespace(d, offset)
     value, offset = parsemakesyntax(d, offset, '')
     assert offset == -1
     return value
@@ -191,13 +192,6 @@ def setvariable(variables, vname, recursive, value):
 
     @param vname an string holding the variable name
     """
-    # TODO: the following line is incorrect. The parser should strip trailing
-    # whitespace in the source text, instead of stripping the resolved value
-    # here. Because this is hard, and this is only a problem in the world
-    # of torture testcases, ignore the problem for now. See
-    # tests/var-ref.mk VAR6
-    vname = vname.rstrip()
-
     if len(vname) == 0:
         raise SyntaxError("Empty variable name", loc=d.getloc(offset))
 
@@ -225,15 +219,21 @@ def parsestream(fd, filename, makefile):
     for lineno, line in fdlines:
         if line.startswith('\t') and currule is not None:
             d = Data()
+            isc = iscontinuation(line)
+            if not isc:
+                line = line[:-1] # strip newline
             d.append(line[1:], Location(filename, lineno, tabwidth))
-            while iscontinuation(line):
+            while isc:
                 lineno, line = fdlines.next()
                 startcol = 0
                 if line.startwith('\t'):
                     startcol = tabwith
                     line = line[1:]
+                isc = iscontinuation(line)
+                if not isc:
+                    line = line[:-1] # strip newline
                 d.append(line, Location(filename, lineno, startcol))
-            currule.addcommand(parsecommand(d))
+            currule.addcommand(parsetoend(d, 0, False))
         else:
             # To parse Makefile syntax, we first strip leading whitespace and
             # join continued lines, then look for initial keywords. If there
@@ -270,8 +270,9 @@ def parsestream(fd, filename, makefile):
             currule = None
 
             if d[stoppedat] == '=' or d[stoppedat:stoppedat+2] == ':=':
+                e.rstrip()
                 vname = e.resolve(makefile.variables, None)
-                value = parsevarvalue(d, stoppedat + (d[stoppedat] == '=' and 1 or 2))
+                value = parsetoend(d, stoppedat + (d[stoppedat] == '=' and 1 or 2), True)
                 setvariable(makefile.variables, vname, d[stoppedat] == '=', value)
             else:
                 assert d[stoppedat] == ':'
@@ -312,13 +313,15 @@ def parsestream(fd, filename, makefile):
                             makefile.gettarget(t.gettarget()).addrule(currule)
                         makefile.foundtarget(targets[0].gettarget())
                 elif d[stoppedat] == '=' or d[stoppedat:stoppedat+2] == ':=':
+                    e.lstrip()
+                    e.rstrip()
                     vname = e.resolve(makefile.variables, None)
-                    value = parsevarvalue(d, stoppedat + d[stoppedat] == '=' and 1 or 2)
+                    value = parsetoend(d, stoppedat + (d[stoppedat] == '=' and 1 or 2), True)
                     if ispattern:
-                        for target in targetlist:
+                        for target in targets:
                             setvariable(makefile.getpatternvariables(target), vname, d[stoppedat] == '=', value)
                     else:
-                        for target in targetlist:
+                        for target in targets:
                             setvariable(makefile.gettarget(target.gettarget()).variables, vname, d[stoppedat] == '=', value)
                 else:
                     raise NotImplementedError()

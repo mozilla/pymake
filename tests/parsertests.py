@@ -176,6 +176,31 @@ class VariableTest(TestBase):
             else:
                 self.assertEqual(val.resolve(m.variables, None), v, 'variable named %s' % k)
 
+class SimpleRuleTest(TestBase):
+    testdata = """
+    VAR = value
+TSPEC = dummy
+all: TSPEC = myrule
+all:: test test2 $(VAR)
+	echo "Hello, $(TSPEC)"
+"""
+
+    def runTest(self):
+        m = pymake.data.Makefile()
+        stream = StringIO(self.testdata)
+        pymake.parser.parsestream(stream, 'testdata', m)
+        self.assertEqual(m.defaulttarget, 'all', "Default target")
+        self.assertTrue(m.hastarget('all'), "Has 'all' target")
+        target = m.gettarget('all')
+        rules = target.rules
+        self.assertEqual(len(rules), 1, "Number of rules")
+        prereqs = rules[0].prerequisites
+        self.assertEqual(prereqs, ['test', 'test2', 'value'], "Prerequisites")
+        commands = rules[0].commands
+        self.assertEqual(len(commands), 1, "Number of commands")
+        expanded = commands[0].resolve(target.variables, None)
+        self.assertEquals(expanded, 'echo "Hello, myrule"')
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
     unittest.main()
