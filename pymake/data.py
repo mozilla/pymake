@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 """
 A representation of makefile data structures.
 """
@@ -183,6 +181,15 @@ class Variables(object):
             return
 
         self._map[name] = (flavor, source, value)
+
+    def merge(self, other):
+        assert isinstance(other, Variables)
+        for k, flavor, source, value in other:
+            self.set(k, flavor, source, value)
+
+    def __iter__(self):
+        for k, (flavor, source, value) in self._map.iteritems():
+            yield k, flavor, source, value
 
 class Pattern(object):
     """
@@ -374,6 +381,9 @@ class Target(object):
             for d in r.prerequisitesfor(self.target):
                 makefile.gettarget(d).resolvedeps(makefile, targetstack, newrulestack)
 
+        for v in makefile.getpatternvariablesfor(self.target):
+            self.variables.merge(v)
+
     def resolvevpath(self, makefile):
         if self.isphony(makefile):
             self.vpathtarget = self.target
@@ -420,7 +430,7 @@ class Target(object):
                     if mtimeislater(dep.mtime, self.mtime):
                         remake = True
 
-            if remake or depcount == 0:
+            if commandrule is not None and (remake or depcount == 0):
                 commandrule.execute(self, makefile)
                 
 class Rule(object):
@@ -490,7 +500,7 @@ class Makefile(object):
         self.defaulttarget = None
         self.variables = Variables()
         self._targets = {}
-        self._patternvariables = {}
+        self._patternvariables = [] # of (pattern, variables)
         self.implicitrules = []
         self.parsingfinished = False
 
@@ -504,7 +514,16 @@ class Makefile(object):
 
     def getpatternvariables(self, pattern):
         assert isinstance(pattern, Pattern)
-        return self._patternvariables.setdefault(pattern, Variables())
+
+        for p, v in self._patternvariables:
+            if p == pattern:
+                return v
+        self._patternvariables.append( (pattern, Variables()) )
+
+    def getpatternvariablesfor(self, target):
+        for p, v in self._patternvariables:
+            if p.match(target):
+                yield v
 
     def hastarget(self, target):
         return target in self._targets

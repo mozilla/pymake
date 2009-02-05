@@ -1,5 +1,4 @@
-import pymake.parser
-import pymake.data
+import pymake.data, pymake.parser, pymake.functions
 import unittest
 import logging
 
@@ -121,7 +120,7 @@ class MakeSyntaxTest(TestBase):
             if isinstance(e, str):
                 self.assertEqual(a, e, "compareRecursive: %s" % (ipath,))
             else:
-                self.assertEqual(type(a), getattr(pymake.data, e['type']),
+                self.assertEqual(type(a), getattr(pymake.functions, e['type']),
                                  "compareRecursive: %s" % (ipath,))
                 for k, v in e.iteritems():
                     if k == 'type':
