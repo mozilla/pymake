@@ -122,7 +122,7 @@ class StripFunction(Function):
         self.expectargs(1)
 
     def resolve(self, variables, setting):
-        return ' '.join(splitwords(self._arguments[0].resolve(variables, setting)))
+        return ' '.join(data.splitwords(self._arguments[0].resolve(variables, setting)))
 
 class FindstringFunction(Function):
     name = 'findstring'
@@ -137,6 +137,92 @@ class FindstringFunction(Function):
             return ''
         return s
 
+class FilterFunction(Function):
+    name = 'filter'
+
+    def setup(self):
+        self.expectargs(2)
+
+    def resolve(self, variables, setting):
+        ps = self._arguments[0].resolve(variables, setting)
+        d = self._arguments[1].resolve(variables.setting)
+        plist = [data.Pattern(p) for p in ps]
+        r = []
+        for w in data.splitwords(d):
+            for p in plist:
+                if p.match(w) is not None:
+                    r.append(w)
+                    break
+
+        return ' '.join(r)
+
+class FilteroutFunction(Function):
+    name = 'filter-out'
+
+    def setup(self):
+        self.expectargs(2)
+
+    def resolve(self, variables, setting):
+        ps = self._arguments[0].resolve(variables, setting)
+        d = self._arguments[1].resolve(variables, setting)
+        plist = [data.Pattern(p) for p in ps]
+        r = []
+        for w in data.splitwords(d):
+            for p in plist:
+                if p.match(w) is not None:
+                    break
+                r.append(w)
+
+        return ' '.join(r)
+
+class SortFunction(Function):
+    name = 'sort'
+
+    def setup(self):
+        self.expectargs(1)
+
+    def resolve(self, variables, setting):
+        d = self._arguments[0].resolve(variables, setting)
+        w = data.splitwords(w)
+        w.sort()
+        return data.withoutdups(w)
+
+class WordFunction(Function):
+    name = 'word'
+
+    def setup(self):
+        self.expectargs(2)
+
+    def resolve(self, variables, setting):
+        n = self._arguments[0].resolve(variables, setting)
+        # TODO: provide better error if this doesn't convert
+        n = int(n)
+        words = data.splitwords(self._arguments[1].resolve(variables, setting))
+        if n < 1 or n > len(words):
+            return ''
+        return words[n - 1]
+
+class WordlistFunction(Function):
+    name = 'wordlist'
+
+    def setup(self):
+        self.expectargs(3)
+
+    def resolve(self, variables, setting):
+        nfrom = self._arguments[0].resolve(variables, setting)
+        nto = self._arguments[1].resolve(variables, setting)
+        # TODO: provide better errors if this doesn't convert
+        nfrom = int(nfrom)
+        nto = int(nto)
+
+        words = data.splitwords(self._arguments[2].resolve(variables, setting))
+
+        if nfrom < 1:
+            nfrom = 1
+        if nto < 1:
+            nto = 1
+
+        return ' '.join(words[nfrom - 1:nto])
 
 class FlavorFunction(Function):
     name = 'flavor'
@@ -157,18 +243,18 @@ class FlavorFunction(Function):
         elif flavor == data.Variables.FLAVOR_SIMPLE:
             return 'simple'
 
-        raise DataError('Variable %s flavor is neither simple nor recursive!' % (varname,))
+        assert False, "Neither simple nor recursive?"
 
 functionmap = {
     'subst': SubstFunction,
     'patsubst': PatSubstFunction,
     'strip': StripFunction,
     'findstring': FindstringFunction,
-    'filter': None,
-    'filter-out': None,
-    'sort': None,
-    'word': None,
-    'wordlist': None,
+    'filter': FilterFunction,
+    'filter-out': FilteroutFunction,
+    'sort': SortFunction,
+    'word': WordFunction,
+    'wordlist': WordlistFunction,
     'words': None,
     'firstword': None,
     'lastword': None,

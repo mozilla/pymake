@@ -430,7 +430,7 @@ def parsemakesyntax(d, startat, stopat):
 
             if stacktop.parsestate == PARSESTATE_FUNCTION:
                 if c == ',':
-                    stacktop.function.append(e)
+                    stacktop.function.append(stacktop.expansion)
                     stacktop.expansion = data.Expansion()
                 elif c == ')':
                     stacktop.function.append(stacktop.expansion)
