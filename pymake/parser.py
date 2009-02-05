@@ -19,7 +19,7 @@ nest parenthesized syntax.
 """
 
 import logging
-from pymake import data
+from pymake import data, functions
 
 tabwidth = 4
 
@@ -256,7 +256,7 @@ def parsestream(fd, filename, makefile):
                 lineno, line = fdlines.next()
                 startcol = 0
                 if line.startswith('\t'):
-                    startcol = tabwith
+                    startcol = tabwidth
                     line = line[1:]
                 isc = iscontinuation(line)
                 if not isc:
@@ -407,8 +407,8 @@ def parsemakesyntax(d, startat, stopat):
                 while d[j] >= 'a' and d[j] <= 'z':
                     j += 1
                 fname = d[i + 1:j]
-                if d[j].isspace() and fname in data.functions:
-                    fn = data.functions[fname](loc)
+                if d[j].isspace() and fname in functions.functionmap:
+                    fn = functions.functionmap[fname](loc)
                     stack.append(ParseStackFrame(PARSESTATE_FUNCTION,
                                                  data.Expansion(), ',)',
                                                  function=fn))
@@ -422,7 +422,7 @@ def parsemakesyntax(d, startat, stopat):
             else:
                 fe = data.Expansion()
                 fe.append(d[i])
-                stacktop.expansion.append(data.VariableRef(loc, fe))
+                stacktop.expansion.append(functions.VariableRef(loc, fe))
                 i += 1
         elif c in stacktop.stopat:
             if stacktop.parsestate == PARSESTATE_TOPLEVEL:
@@ -447,7 +447,7 @@ def parsemakesyntax(d, startat, stopat):
                     stacktop.stopat = '=)'
                 elif c == ')':
                     stack.pop()
-                    stack[-1].expansion.append(data.VariableRef(stacktop.loc, stacktop.expansion))
+                    stack[-1].expansion.append(functions.VariableRef(stacktop.loc, stacktop.expansion))
                 else:
                     assert False, "Not reached, PARSESTATE_VARNAME"
             elif stacktop.parsestate == PARSESTATE_SUBSTFROM:
@@ -464,15 +464,15 @@ def parsemakesyntax(d, startat, stopat):
                     stacktop.varname.append(':')
                     stacktop.varname.concat(stacktop.expansion)
                     stack.pop()
-                    stack[-1].expansion.append(data.VariableRef(stacktop.loc, stacktop.varname))
+                    stack[-1].expansion.append(functions.VariableRef(stacktop.loc, stacktop.varname))
                 else:
                     assert False, "Not reached, PARSESTATE_SUBSTFROM"
             elif stacktop.parsestate == PARSESTATE_SUBSTTO:
                 assert c == ')', "Not reached, PARSESTATE_SUBSTTO"
 
                 stack.pop()
-                stack[-1].expansion.append(data.SubstitutionRef(stacktop.loc, stacktop.varname,
-                                                                stacktop.substfrom, stacktop.expansion))
+                stack[-1].expansion.append(functions.SubstitutionRef(stacktop.loc, stacktop.varname,
+                                                                     stacktop.substfrom, stacktop.expansion))
             else:
                 assert False, "Unexpected parse state %s" % stacktop.parsestate
         else:

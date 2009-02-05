@@ -5,6 +5,7 @@ A representation of makefile data structures.
 """
 
 import logging, re, os, subprocess
+import pymake
 
 log = logging.getLogger('pymake.data')
 
@@ -42,49 +43,6 @@ def getmtime(path):
     except OSError:
         return None
 
-class Function(object):
-    """
-    An object that represents a function call. This class is always subclassed
-    with the following two methods:
-
-    def setup(self)
-        validates the number of arguments to a function
-        no return value
-    def resolve(self, variables, setting)
-        Calls the function
-        @returns string
-    """
-    def __init__(self, loc):
-        self._arguments = []
-
-    def __getitem__(self, key):
-        return self._arguments[key]
-
-    def append(self, arg):
-        assert isinstance(arg, Expansion)
-        self._arguments.append(arg)
-
-class VariableRef(Function):
-    def __init__(self, loc, vname):
-        self.loc = loc
-        assert(isinstance(vname, Expansion))
-        self.vname = vname
-        
-    def setup(self):
-        pass
-
-    def resolve(self, variables, setting):
-        vname = self.vname.resolve(variables, setting)
-        if vname == setting:
-            raise DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
-
-        flavor, source, value = variables.get(vname)
-        if value is None:
-            log.warning("%s: variable '%s' has no value" % (self.loc, vname))
-            return ''
-
-        return value.resolve(variables, setting)
-
 _ws = re.compile(r'\s+')
 
 def splitwords(s):
@@ -97,111 +55,6 @@ def splitwords(s):
         if words[i] == '':
             del words[i]
     return words
-
-class SubstitutionRef(Function):
-    """$(VARNAME:.c=.o) and $(VARNAME:%.c=%.o)"""
-    def __init__(self, loc, varname, substfrom, substto):
-        self.loc = loc
-        self.vname = varname
-        self.substfrom = substfrom
-        self.substto = substto
-
-    def setup(self):
-        pass
-
-    def resolve(self, variables, setting):
-        vname = self.vname.resolve(variables, setting)
-        if vname == setting:
-            raise DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
-
-        substfrom = self.substfrom.resolve(variables, setting)
-        substto = self.substto.resolve(variables, setting)
-
-        flavor, source, value = variables.get(vname)
-        if value is None:
-            log.warning("%s: variable '%s' has no value" % (self.loc, vname))
-            return ''
-
-        evalue = value.resolve(variables, setting)
-        words = splitwords(evalue)
-
-        f = Pattern(substfrom)
-        if not f.ispattern():
-            f = Pattern('%' + substfrom)
-            substto = '%' + substto
-
-        return " ".join((f.subst(substto, word, False)
-                         for word in words))
-
-class PatSubstFunction(Function):
-    def setup(self):
-        if len(self._arguments) < 3:
-            raise DataError("Not enough arguments for patsubst", self.loc)
-        if len(self._arguments) > 3:
-            log.warning("%s: patsubst function takes three arguments, got %i" % (self.loc, len(self._arguments)))
-
-    def resolve(self, variables, setting):
-        raise NotImplementedError()
-
-class FlavorFunction(Function):
-    def setup(self):
-        if len(self._arguments) < 1:
-            raise SomeError
-        if len(self._arguments) > 1:
-            log.warning("%s: flavor function takes one argument, got %i" % (self.loc, len(self._arguments)))
-
-    def resolve(self, variables, setting):
-        varname = self._arguments[0].resolve(variables, setting)
-
-        
-        flavor, source, value = variables.get(varname)
-        if flavor is None:
-            return 'undefined'
-
-        if flavor == Variables.FLAVOR_RECURSIVE:
-            return 'recursive'
-        elif flavor == Variables.FLAVOR_SIMPLE:
-            return 'simple'
-
-        raise DataError('Variable %s flavor is neither simple nor recursive!' % (varname,))
-
-functions = {
-    'subst': None,
-    'patsubst': None,
-    'strip': None,
-    'findstring': None,
-    'filter': None,
-    'filter-out': None,
-    'sort': None,
-    'word': None,
-    'wordlist': None,
-    'words': None,
-    'firstword': None,
-    'lastword': None,
-    'dir': None,
-    'notdir': None,
-    'suffix': None,
-    'basename': None,
-    'addsuffix': None,
-    'addprefix': None,
-    'join': None,
-    'wildcard': None,
-    'realpath': None,
-    'abspath': None,
-    'if': None,
-    'or': None,
-    'and': None,
-    'foreach': None,
-    'call': None,
-    'value': None,
-    'eval': None,
-    'origin': None,
-    'flavor': FlavorFunction,
-    'shell': None,
-    'error': None,
-    'warning': None,
-    'info': None,
-}
 
 def _if_else(c, t, f):
     if c:
@@ -224,7 +77,7 @@ class Expansion(object):
         return e
 
     def append(self, object):
-        if not isinstance(object, (str, Function)):
+        if not isinstance(object, (str, pymake.functions.Function)):
             raise DataError("Expansions can contain only strings or functions, got %s" % (type(object),))
 
         if len(self) and isinstance(object, str) and isinstance(self[-1], str):
@@ -514,7 +367,7 @@ class Target(object):
 
         if ruleswithcommands == 0:
             if len(makefile.implicitrules) > 0:
-                raise NotImplementedError("No rules to make '%s', and implicit rules aren't implemented yet!")
+                raise NotImplementedError("No rules to make '%s', and implicit rules aren't implemented yet!" % (self.target,))
 
         for r in self.rules:
             newrulestack = rulestack + [r]
