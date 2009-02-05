@@ -139,9 +139,10 @@ class Data(object):
         return len(self.data)
 
     def __getitem__(self, key):
-        if key >= len(self.data):
+        try:
+            return self.data[key]
+        except IndexError:
             return None
-        return self.data[key]
 
     def append(self, data, loc):
         self._locs.append( (len(self.data), loc) )
