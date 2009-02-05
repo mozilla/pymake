@@ -359,8 +359,8 @@ class Pattern(object):
         """
         Match this search pattern against a word (string).
 
-        @returns None if the word doesn't match, or the matching stem. If this is a %-less pattern,
-                      the stem will always be ''
+        @returns None if the word doesn't match, or the matching stem.
+                      If this is a %-less pattern, the stem will always be ''
         """
         if self.ispattern():
             search = r'^%s(.*)%s$' % (re.escape(self.data[0]),
@@ -432,6 +432,54 @@ class Target(object):
 
         self.rules.append(rule)
 
+    def isdoublecolon(self):
+        return self.rules[0].doublecolon
+
+    def isphony(self, makefile):
+        """Is this a phony target? We don't check for existence of phony targets."""
+        phony = makefile.gettarget('.PHONY').hasdependency(self.target)
+
+    def hasdependency(self, t):
+        for rule in self.rules:
+            if t in rule.prerequisites:
+                return True
+
+        return False
+
+    def resolvedeps(self, makefile, targetstack, rulestack):
+        """
+        Resolve the actual path of this target, using vpath if necessary.
+
+        Recursively resolve dependencies of this target. This means finding implicit
+        rules which match the target, if appropriate.
+
+        @param targetstack is the current stack of dependencies being resolved. If
+               this target is already in rstack, bail to prevent infinite
+               recursion.
+        @param rulestack is the current stack of implicit rules being used to resolve
+               dependencies. A rule chain cannot use the same implicit rule twice.
+        """
+        if self.target in rstack:
+            raise DataError("Recursive dependency: %s -> %s" % (
+                    " -> ".join(rstack), self.target))
+
+        # Sanity-check our rules. If we're single-colon, only one rule should have commands
+        ruleswithcommands = reduce(lambda rule, i: i + len(rule.commands) > 0, self.rules, 0)
+        if not self.isdoublecolon():
+            if ruleswithcommands > 0:
+                # In GNU make this is a warning, not an error. I'm going to be stricter.
+                # TODO: provide locations
+                raise DataError("Target '%s' has multiple rules with commands." % self.target)
+
+        if ruleswithcommands == 0:
+            raise NotImplementedError("No rules to make '%s', and implicit rules aren't implemented yet!")
+
+        for r in self.rules:
+            newrulestack = rulestack + r
+            for d in r.prerequisitesfor(self.target):
+                makefile.gettarget(d).resolvedeps(makefile, targetstack + d, newrulestack)
+            
+
 class Rule(object):
     """
     A rule contains a list of prerequisites and a list of commands. It may also
@@ -448,6 +496,9 @@ class Rule(object):
         assert(isinstance(c, Expansion))
         self.commands.append(c)
 
+    def prerequisitesfor(self, t):
+        return self.prerequisites
+
 class PatternRule(object):
     """
     An implicit rule or static pattern rule containing target patterns, prerequisite patterns,
@@ -463,6 +514,9 @@ class PatternRule(object):
     def addcommand(self, c):
         assert isinstance(c, Expansion)
         self.commands.append(c)
+
+    def prerequisitesfor(self, t):
+        raise NotImplementedError()
 
 class Makefile(object):
     def __init__(self):

@@ -30,3 +30,13 @@ if len(options.makefiles) == 0:
 
 for f in options.makefiles:
     parsestream(open(f), f, m)
+
+if len(targets):
+    tlist = [m.gettarget(t) for t in targets]
+    for t in tlist:
+        t.resolvedeps()
+    # for t in tlist:
+    #     t.make()
+else:
+    if m.defaulttarget is None:
+        raise Error("No target specified and no default target found.")
