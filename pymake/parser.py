@@ -199,7 +199,7 @@ def setvariable(variables, vname, recursive, value):
         raise SyntaxError("Empty variable name", loc=d.getloc(offset))
 
     if recursive:
-        flavor = data.Variables.FLAVOR_SIMPLE
+        flavor = data.Variables.FLAVOR_RECURSIVE
     else:
         flavor = data.Variables.FLAVOR_SIMPLE
         e = data.Expansion()
