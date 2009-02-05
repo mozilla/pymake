@@ -500,11 +500,13 @@ class Target(object):
             raise DataError("Recursive dependency: %s -> %s" % (
                     " -> ".join(targetstack), self.target))
 
+        targetstack = targetstack + [self.target]
+
         self.resolvevpath(makefile)
 
         # Sanity-check our rules. If we're single-colon, only one rule should have commands
         ruleswithcommands = reduce(lambda i, rule: i + len(rule.commands) > 0, self.rules, 0)
-        if not self.isdoublecolon():
+        if len(self.rules) and not self.isdoublecolon():
             if ruleswithcommands > 1:
                 # In GNU make this is a warning, not an error. I'm going to be stricter.
                 # TODO: provide locations
@@ -517,7 +519,7 @@ class Target(object):
         for r in self.rules:
             newrulestack = rulestack + [r]
             for d in r.prerequisitesfor(self.target):
-                makefile.gettarget(d).resolvedeps(makefile, targetstack + [d], newrulestack)
+                makefile.gettarget(d).resolvedeps(makefile, targetstack, newrulestack)
 
     def resolvevpath(self, makefile):
         if self.isphony(makefile):
@@ -545,7 +547,7 @@ class Target(object):
                     depcount += 1
                     dep = makefile.gettarget(p)
                     dep.make(makefile)
-                    if mtimeislater(dep(p).mtime, self.mtime):
+                    if mtimeislater(dep.mtime, self.mtime):
                         remake = True
                 if remake or depcount == 0:
                     rule.execute(self, makefile)
@@ -562,7 +564,7 @@ class Target(object):
                     depcount += 1
                     dep = makefile.gettarget(p)
                     dep.make(makefile)
-                    if mtimeislater(dep(p).mtime, self.mtime):
+                    if mtimeislater(dep.mtime, self.mtime):
                         remake = True
 
             if remake or depcount == 0:

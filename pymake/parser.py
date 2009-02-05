@@ -150,7 +150,7 @@ class Data(object):
 
     def stripcomment(self):
         cloc = findcommenthash(self.data)
-        if cloc > 0:
+        if cloc != -1:
             self.data = self.data[:cloc]
 
     def getloc(self, offset):
@@ -226,7 +226,8 @@ def parsecommandlineargs(makefile, args):
             valtext = a[eqpos+1:].lstrip()
             d = Data()
             d.append(valtext, Location('<command-line>', 1, eqpos + 1))
-            value = parsemakesyntax(d, 0, '')
+            value, offset = parsemakesyntax(d, 0, '')
+            assert offset == -1
             setvariable(makefile.variables, vname, a[eqpos-1] == ':', value)
         else:
             r.append(a)
