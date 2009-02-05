@@ -19,7 +19,9 @@ class GetPatSubstTest(unittest.TestCase):
         ('%', '%.o', ' test.c test.o ', 'test.c.o test.o.o'),
         ('foo', 'bar', 'test foo bar', 'test bar bar'),
         ('foo', '%bar', 'test foo bar', 'test %bar bar'),
-        ('\\%', 'perc_%', '%path path', 'perc_path path'),
+        ('%', 'perc_%', 'path', 'perc_path'),
+        ('\\%', 'sub%', 'p %', 'p sub%'),
+        ('%.c', '\\%%.o', 'foo.c bar.o baz.cpp', '%foo.o bar.o baz.cpp'),
     )
 
     def runTest(self):

@@ -113,7 +113,9 @@ class PatSubstFunction(Function):
         r = self._arguments[1].resolve(variables, setting)
         d = self._arguments[2].resolve(variables, setting)
 
-        return data.Pattern(s).subst(r, d, False)
+        p = data.Pattern(s)
+        return ' '.join((p.subst(r, word, False)
+                         for word in data.splitwords(d)))
 
 class StripFunction(Function):
     name = 'strip'

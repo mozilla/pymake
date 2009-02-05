@@ -226,7 +226,7 @@ class Pattern(object):
                 return
             else:
                 r.append(c)
-                i += 1
+            i += 1
 
         # This is different than (s,) because \% and \\ have been unescaped. Parsing patterns is
         # context-sensitive!
