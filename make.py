@@ -31,6 +31,8 @@ if len(options.makefiles) == 0:
 for f in options.makefiles:
     parsestream(open(f), f, m)
 
+m.finishparsing()
+
 if len(targets):
     tlist = [m.gettarget(t) for t in targets]
     for t in tlist:

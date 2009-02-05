@@ -4,7 +4,7 @@
 A representation of makefile data structures.
 """
 
-import logging, re
+import logging, re, os
 
 log = logging.getLogger('pymake.data')
 
@@ -16,6 +16,13 @@ class DataError(Exception):
     def __str__(self):
         return "%s: %s" % (self.loc and self.loc or "internal error",
                            self.message)
+
+def getmtime(path):
+    try:
+        s = os.stat(path)
+        return s.st_mtime
+    except OSError:
+        return None
 
 class Function(object):
     """
@@ -414,6 +421,7 @@ class Target(object):
     def __init__(self, target, makefile):
         assert isinstance(target, str)
         self.target = target
+        self.vpathtarget = None
         self.rules = []
         self.variables = Variables(makefile.variables)
 
@@ -453,12 +461,17 @@ class Target(object):
         Recursively resolve dependencies of this target. This means finding implicit
         rules which match the target, if appropriate.
 
+        Figure out whether this target needs to be rebuild, and set self.outofdate
+        appropriately.
+
         @param targetstack is the current stack of dependencies being resolved. If
                this target is already in rstack, bail to prevent infinite
                recursion.
         @param rulestack is the current stack of implicit rules being used to resolve
                dependencies. A rule chain cannot use the same implicit rule twice.
         """
+        assert makefile.parsingfinished
+
         if self.target in rstack:
             raise DataError("Recursive dependency: %s -> %s" % (
                     " -> ".join(rstack), self.target))
@@ -472,13 +485,21 @@ class Target(object):
                 raise DataError("Target '%s' has multiple rules with commands." % self.target)
 
         if ruleswithcommands == 0:
-            raise NotImplementedError("No rules to make '%s', and implicit rules aren't implemented yet!")
+            if len(makefile.implicitrules) > 0:
+                raise NotImplementedError("No rules to make '%s', and implicit rules aren't implemented yet!")
+
+            mt = getmtime(self.target)
 
         for r in self.rules:
             newrulestack = rulestack + r
             for d in r.prerequisitesfor(self.target):
                 makefile.gettarget(d).resolvedeps(makefile, targetstack + d, newrulestack)
-            
+
+    def resolvevpath(self, makefile):
+        if self.vpathtartget is None:
+            # TODO: the vpath is a figment of your imagination
+            self.vpathtarget = self.target
+            self.mtime = getmtime(self.target)
 
 class Rule(object):
     """
@@ -525,6 +546,7 @@ class Makefile(object):
         self._targets = {}
         self._patternvariables = {}
         self.implicitrules = []
+        self.parsingfinished = False
 
     def foundtarget(self, t):
         """
@@ -552,3 +574,22 @@ class Makefile(object):
     def appendimplicitrule(self, rule):
         assert isinstance(rule, PatternRule)
         self.implicitrules.append(rule)
+
+    def finishparsing(self):
+        """
+        Various activities, such as "eval", are not allowed after parsing is
+        finished. In addition, various warnings and errors can only be issued
+        after the parsing data model is complete. All dependency resolution
+        and rule execution requires that parsing be finished.
+        """
+        self.parsingfinished = True
+
+        flavor, source, value = self.variables.get('GPATH')
+        if value is not None and value.resolve(self.variables, 'GPATH').strip() != '':
+            raise DataError('GPATH was set: pymake does not support GPATH semantics')
+
+        flavor, source, value = self.variables.get('VPATH')
+        if value is None:
+            self.vpath = []
+        else:
+            self.vpath = filter(lambda e: e != '', re.split('[:\s]+', value.resolve(self.variables, 'VPATH')))
