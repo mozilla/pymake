@@ -254,7 +254,7 @@ def parsestream(fd, filename, makefile):
             while isc:
                 lineno, line = fdlines.next()
                 startcol = 0
-                if line.startwith('\t'):
+                if line.startswith('\t'):
                     startcol = tabwith
                     line = line[1:]
                 isc = iscontinuation(line)

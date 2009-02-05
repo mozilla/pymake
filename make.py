@@ -33,12 +33,13 @@ for f in options.makefiles:
 
 m.finishparsing()
 
-if len(targets):
-    tlist = [m.gettarget(t) for t in targets]
-    for t in tlist:
-        t.resolvedeps()
-    # for t in tlist:
-    #     t.make()
-else:
+if len(targets) == 0:
     if m.defaulttarget is None:
         raise Error("No target specified and no default target found.")
+    targets = [m.defaulttarget]
+
+tlist = [m.gettarget(t) for t in targets]
+for t in tlist:
+    t.resolvedeps(m, [], [])
+for t in tlist:
+    t.make(m)

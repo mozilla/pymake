@@ -4,7 +4,7 @@
 A representation of makefile data structures.
 """
 
-import logging, re, os
+import logging, re, os, subprocess
 
 log = logging.getLogger('pymake.data')
 
@@ -16,6 +16,24 @@ class DataError(Exception):
     def __str__(self):
         return "%s: %s" % (self.loc and self.loc or "internal error",
                            self.message)
+
+def withoutdups(it):
+    r = set()
+    for i in it:
+        if not i in r:
+            r.add(i)
+            yield i
+
+def mtimeislater(deptime, targettime):
+    """
+    Is the mtime of the dependency later than the target?
+    """
+
+    if deptime is None:
+        return True
+    if targettime is None:
+        return False
+    return mt > mto
 
 def getmtime(path):
     try:
@@ -136,7 +154,7 @@ class FlavorFunction(Function):
         varname = self._arguments[0].resolve(variables, setting)
 
         
-        flavor, source, value = variables.get(varname, None)
+        flavor, source, value = variables.get(varname)
         if flavor is None:
             return 'undefined'
 
@@ -198,6 +216,12 @@ class Expansion(object):
     def __init__(self):
         # Each element is either a string or a function
         self._elements = []
+
+    @staticmethod
+    def fromstring(s):
+        e = Expansion()
+        e.append(s)
+        return e
 
     def append(self, object):
         if not isinstance(object, (str, Function)):
@@ -465,21 +489,23 @@ class Target(object):
         appropriately.
 
         @param targetstack is the current stack of dependencies being resolved. If
-               this target is already in rstack, bail to prevent infinite
+               this target is already in targetstack, bail to prevent infinite
                recursion.
         @param rulestack is the current stack of implicit rules being used to resolve
                dependencies. A rule chain cannot use the same implicit rule twice.
         """
         assert makefile.parsingfinished
 
-        if self.target in rstack:
+        if self.target in targetstack:
             raise DataError("Recursive dependency: %s -> %s" % (
-                    " -> ".join(rstack), self.target))
+                    " -> ".join(targetstack), self.target))
+
+        self.resolvevpath(makefile)
 
         # Sanity-check our rules. If we're single-colon, only one rule should have commands
-        ruleswithcommands = reduce(lambda rule, i: i + len(rule.commands) > 0, self.rules, 0)
+        ruleswithcommands = reduce(lambda i, rule: i + len(rule.commands) > 0, self.rules, 0)
         if not self.isdoublecolon():
-            if ruleswithcommands > 0:
+            if ruleswithcommands > 1:
                 # In GNU make this is a warning, not an error. I'm going to be stricter.
                 # TODO: provide locations
                 raise DataError("Target '%s' has multiple rules with commands." % self.target)
@@ -488,19 +514,60 @@ class Target(object):
             if len(makefile.implicitrules) > 0:
                 raise NotImplementedError("No rules to make '%s', and implicit rules aren't implemented yet!")
 
-            mt = getmtime(self.target)
-
         for r in self.rules:
-            newrulestack = rulestack + r
+            newrulestack = rulestack + [r]
             for d in r.prerequisitesfor(self.target):
-                makefile.gettarget(d).resolvedeps(makefile, targetstack + d, newrulestack)
+                makefile.gettarget(d).resolvedeps(makefile, targetstack + [d], newrulestack)
 
     def resolvevpath(self, makefile):
-        if self.vpathtartget is None:
+        if self.isphony(makefile):
+            self.vpathtarget = self.target
+            self.mtime = None
+
+        if self.vpathtarget is None:
             # TODO: the vpath is a figment of your imagination
             self.vpathtarget = self.target
             self.mtime = getmtime(self.target)
+        
+    def make(self, makefile):
+        """
+        If we are out of date, make ourself.
 
+        For now, making is synchronous/serialized. -j magic will come later.
+        """
+        assert self.vpathtarget is not None, "Target was never resolved!"
+
+        if self.isdoublecolon():
+            for r in self.rules:
+                remake = False
+                depcount = 0
+                for p in r.prerequisitesfor(self.target):
+                    depcount += 1
+                    dep = makefile.gettarget(p)
+                    dep.make(makefile)
+                    if mtimeislater(dep(p).mtime, self.mtime):
+                        remake = True
+                if remake or depcount == 0:
+                    rule.execute(self, makefile)
+        else:
+            commandrule = None
+            remake = False
+            depcount = 0
+
+            for r in self.rules:
+                if len(r.commands):
+                    assert commandrule is None, "Two command rules for a single-colon target?"
+                    commandrule = r
+                for p in r.prerequisitesfor(self.target):
+                    depcount += 1
+                    dep = makefile.gettarget(p)
+                    dep.make(makefile)
+                    if mtimeislater(dep(p).mtime, self.mtime):
+                        remake = True
+
+            if remake or depcount == 0:
+                commandrule.execute(self, makefile)
+                
 class Rule(object):
     """
     A rule contains a list of prerequisites and a list of commands. It may also
@@ -519,6 +586,30 @@ class Rule(object):
 
     def prerequisitesfor(self, t):
         return self.prerequisites
+
+    def execute(self, target, makefile):
+        assert isinstance(target, Target)
+
+        v = Variables(parent=target.variables)
+        v.set('@', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, Expansion.fromstring(target.target))
+
+        if len(self.prerequisites):
+            v.set('<', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, Expansion.fromstring(self.prerequisites[0]))
+
+        # TODO '?'
+        v.set('^', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
+              Expansion.fromstring(' '.join(withoutdups(self.prerequisites))))
+        v.set('+', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
+              Expansion.fromstring(' '.join(self.prerequisites)))
+        # TODO '|'
+        # TODO (or not?) $*
+        # TODO all the D and F variants
+
+        for c in self.commands:
+            cstring = c.resolve(v, None)
+            if cstring[0:1] == '@':
+                cstring = cstring[1:]
+            subprocess.check_call(cstring, shell=True)
 
 class PatternRule(object):
     """

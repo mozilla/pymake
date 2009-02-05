@@ -15,6 +15,8 @@ from optparse import OptionParser
 import os, re, sys
 
 o = OptionParser()
+o.add_option('-m', '--make',
+             dest="make", default="gmake")
 opts, args = o.parse_args()
 
 if len(args) == 0:
@@ -38,7 +40,7 @@ tre = re.compile('^#T ([a-z]+): (.*)$')
 for makefile in makefiles:
     print "Testing: %s" % makefile,
 
-    cline = ['gmake', '-f', makefile]
+    cline = [opts.make, '-f', makefile]
     returncode = 0
 
     mdata = open(makefile)
