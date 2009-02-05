@@ -189,7 +189,7 @@ def parsetoend(d, offset, skipws):
     assert offset == -1
     return value
 
-def setvariable(variables, vname, recursive, value):
+def setvariable(variables, vname, recursive, value, fromcl=False):
     """
     Parse the remaining data at d[offset] into a variables object.
 
@@ -197,6 +197,11 @@ def setvariable(variables, vname, recursive, value):
     """
     if len(vname) == 0:
         raise SyntaxError("Empty variable name", loc=d.getloc(offset))
+
+    if fromcl:
+        source = data.Variables.SOURCE_OVERRIDE
+    else:
+        source = data.Variables.SOURCE_MAKEFILE
 
     if recursive:
         flavor = data.Variables.FLAVOR_RECURSIVE
@@ -206,7 +211,7 @@ def setvariable(variables, vname, recursive, value):
         e.append(value.resolve(variables, vname))
         value = e
         
-    variables.set(vname, flavor, data.Variables.SOURCE_MAKEFILE, value)
+    variables.set(vname, flavor, source, value)
 
 def parsecommandlineargs(makefile, args):
     """
@@ -228,7 +233,7 @@ def parsecommandlineargs(makefile, args):
             d.append(valtext, Location('<command-line>', 1, eqpos + 1))
             value, offset = parsemakesyntax(d, 0, '')
             assert offset == -1
-            setvariable(makefile.variables, vname, a[eqpos-1] == ':', value)
+            setvariable(makefile.variables, vname, a[eqpos-1] != ':', value, True)
         else:
             r.append(a)
 
