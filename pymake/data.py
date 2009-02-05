@@ -518,7 +518,10 @@ class Makefile(object):
         for p, v in self._patternvariables:
             if p == pattern:
                 return v
-        self._patternvariables.append( (pattern, Variables()) )
+
+        v = Variables()
+        self._patternvariables.append( (pattern, v) )
+        return v
 
     def getpatternvariablesfor(self, target):
         for p, v in self._patternvariables:

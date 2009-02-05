@@ -20,8 +20,6 @@ op.add_option('-f', '--file', '--makefile',
 options, arguments = op.parse_args()
 
 m = Makefile()
-targets = parsecommandlineargs(m, arguments)
-
 if len(options.makefiles) == 0:
     if os.path.exists('Makefile'):
         options.makefiles.append('Makefile')
@@ -29,6 +27,8 @@ if len(options.makefiles) == 0:
         raise Error("No makefile found")
 
 try:
+    targets = parsecommandlineargs(m, arguments)
+
     for f in options.makefiles:
         parsestream(open(f), f, m)
 
