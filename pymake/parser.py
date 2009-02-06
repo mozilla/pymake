@@ -277,7 +277,7 @@ class Condition(object):
     1) is the condition active right now?
     2) was the condition ever met?
     """
-    def __init__(self, active):
+    def __init__(self, active, loc):
         self.active = active
         self.everactive = active
 
@@ -373,7 +373,7 @@ def parsestream(fd, filename, makefile):
                 raise NotImplementedError('no includes yet')
             elif kword in conditionkeywords:
                 m = conditionkeywords[kword](d, kwoffset, makefile)
-                condstack.append(Condition(m))
+                condstack.append(Condition(m, d.getloc(offset)))
                 continue
 
             if any((not c.active for c in condstack)):
@@ -488,6 +488,9 @@ def parsestream(fd, filename, makefile):
                         assert stoppedat == -1
                         e.lstrip()
                         currule.addcommand(e)
+
+    if len(condstack):
+        raise SyntaxError("Condition never terminated with endif", condstack[-1].loc)
 
 PARSESTATE_TOPLEVEL = 0    # at the top level
 PARSESTATE_FUNCTION = 1    # expanding a function call. data is function
