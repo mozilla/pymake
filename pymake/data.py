@@ -416,31 +416,34 @@ class Target(object):
 
         if self.isdoublecolon():
             for r in self.rules:
-                remake = self.mtime is None
-                depcount = 0
+                remake = False
+                if self.mtime is None:
+                    log.info("Remaking %s using rule at %s because it doesn't exist or is a forced target" % (self.target, r.loc))
+                    remake = True
                 for p in r.prerequisitesfor(self.target):
-                    depcount += 1
                     dep = makefile.gettarget(p)
                     dep.make(makefile)
-                    if mtimeislater(dep.mtime, self.mtime):
+                    if not remake and mtimeislater(dep.mtime, self.mtime):
+                        log.info("Remaking %s using rule at %s because %s is newer." % (self.target, r.loc, p))
                         remake = True
-                if remake or depcount == 0:
+                if remake:
                     rule.execute(self, makefile)
         else:
             commandrule = None
-            remake = self.mtime is None
-            depcount = 0
+            remake = False
+            if self.mtime is None:
+                log.info("Remaking %s because it doesn't exist or is a forced target" % (self.target,))
+                remake = True
 
             for r in self.rules:
                 if len(r.commands):
                     assert commandrule is None, "Two command rules for a single-colon target?"
                     commandrule = r
                 for p in r.prerequisitesfor(self.target):
-                    depcount += 1
                     dep = makefile.gettarget(p)
                     dep.make(makefile)
-                    if mtimeislater(dep.mtime, self.mtime):
-                        log.info("Remaking %s because %s is newer" % (self.target, dep.target))
+                    if not remake and mtimeislater(dep.mtime, self.mtime):
+                        log.info("Remaking %s because %s is newer" % (self.target, p))
                         remake = True
 
             if commandrule is not None and remake:
@@ -466,7 +469,7 @@ class Rule(object):
     contain rule-specific variables. This rule may be associated with multiple targets.
     """
 
-    def __init__(self, prereqs, doublecolon):
+    def __init__(self, prereqs, doublecolon, loc):
         self.prerequisites = prereqs
         self.doublecolon = doublecolon
         self.commands = []
@@ -498,7 +501,7 @@ class PatternRule(object):
     and a list of commands.
     """
 
-    def __init__(self, targetpatterns, prerequisites, doublecolon):
+    def __init__(self, targetpatterns, prerequisites, doublecolon, loc):
         self.targetpatterns = targetpatterns
         self.prerequisites = prerequisites
         self.doublecolon = doublecolon

@@ -138,6 +138,21 @@ def _iterlines(fd):
 
         yield (lineno, line)
 
+def getkeyword(d, offset):
+    """
+    Look through d at offset for a potential keyword made up of only a-z and hyphen
+    and followed by a white space. Return word, newoffset or None, None
+    """
+    i = offset
+    while True:
+        c = d[i]
+        if c == '-' or (c >= 'a' and c <= 'z'):
+            i += 1
+            continue
+        if c is not None and c.isspace():
+            return d[offset:i], skipwhitespace(d, i)
+        return None, i
+
 def skipwhitespace(d, offset):
     """
     Return the offset into data after skipping whitespace.
@@ -199,6 +214,82 @@ def parsecommandlineargs(makefile, args):
 
     return r
 
+def ifeq(d, offset, makefile):
+    # the variety of formats for this directive is rather maddening
+    if d[offset] == '(':
+        arg1, offset = parsemakesyntax(d, offset + 1, ',', iscommand=False)
+        if offset == -1:
+            raise SyntaxError("Unexpected text in conditional", d.getloc(len(d) - 1))
+        offset = skipwhitespace(d, offset + 1)
+        arg2, offset = parsemakesyntax(d, offset, ')', iscommand=False)
+        if offset == -1:
+            raise SyntaxError("Unexpected text in conditional", d.getloc(len(d) - 1))
+        offset = skipwhitespace(d, offset + 1)
+        if d[offset] not in ('#', None):
+            raise SyntaxError("Unexpected text after conditional", d.getloc(offset))
+    elif d[offset] in '\'"':
+        arg1, offset = parsemakesyntax(d, offset + 1, d[offset], iscommand=False)
+        if offset == -1:
+            raise SyntaxError("Unexpected text in conditional", d.getloc(len(d) - 1))
+        offset = skipwhitespace(d, offset + 1)
+        if d[offset] not in '\'"':
+            raise SyntaxError("Unexpected text in conditional", d.getloc(offset))
+        arg2, offset = parsemakesyntax(d, offset + 1, d[offset], iscommand=False)
+        offset = skipwhitespace(d, offset + 1)
+        if d[offset] not in ('#', None):
+            raise SyntaxError("Unexpected text after conditional: %c" % (d[offset],), d.getloc(offset))
+
+    val1 = arg1.resolve(makefile.variables, None)
+    val2 = arg2.resolve(makefile.variables, None)
+    return val1 == val2
+
+def ifneq(d, offset, makefile):
+    return not ifeq(d, offset, makefile)
+
+def ifdef(d, offset, makefile):
+    e, offset = parsemakesyntax(d, offset, '', iscommand=False)
+    e.rstrip()
+
+    vname = e.resolve(makefile.variables, None)
+
+    flavor, source, value = makefile.variables.get(vname)
+
+    if value is None:
+        return False
+
+    # We aren't expanding the variable... we're just seeing if it was set to a non-empty
+    # expansion.
+    return len(value) > 0
+
+def ifndef(d, offset, makefile):
+    return not ifdef(d, offset, makefile)
+
+conditionkeywords = {
+    'ifeq': ifeq,
+    'ifneq': ifneq,
+    'ifdef': ifdef,
+    'ifndef': ifndef
+    }
+
+class Condition(object):
+    """
+    Represent aa makefile conditional.
+    1) is the condition active right now?
+    2) was the condition ever met?
+    """
+    def __init__(self, active):
+        self.active = active
+        self.everactive = active
+
+    def makeactive(self, active):
+        if self.everactive:
+            self.active = False
+            return
+
+        self.active = active
+        if active:
+            self.everactive = True
+
 def parsestream(fd, filename, makefile):
     """
     Parse a stream of makefile into a makefile data structure.
@@ -207,12 +298,17 @@ def parsestream(fd, filename, makefile):
     """
 
     currule = None
+    condstack = []
 
     fdlines = _iterlines(fd)
 
     for lineno, line in fdlines:
         d = Data(fdlines, filename)
         if line.startswith('\t') and currule is not None:
+            if any((not c.active for c in condstack)):
+                log.info('skipping line %i, ifdefed away' % lineno)
+                continue
+
             d.append(line[1:], Location(filename, lineno, tabwidth))
             e, stoppedat = parsemakesyntax(d, 0, '', iscommand=True)
             assert stoppedat == -1
@@ -227,7 +323,52 @@ def parsestream(fd, filename, makefile):
 
             offset = skipwhitespace(d, 0)
 
-            # TODO: look for keywords
+            kword, kwoffset = getkeyword(d, offset)
+            if kword == 'endif':
+                if d[kwoffset] not in ('#', None):
+                    raise SyntaxError("Unexpected data after 'endif' directive.",
+                                      d.getloc(kwoffset))
+
+                if not len(condstack):
+                    raise SyntaxError("unmatched 'endif' directive",
+                                      d.getloc(offset))
+
+                condstack.pop()
+                continue
+            elif kword == 'else':
+                if not len(condstack):
+                    raise SyntaxError("unmatched 'else' directive",
+                                      d.getloc(offset))
+
+                kword, kwoffset = getkeyword(d, kwoffset)
+                if kword is None:
+                    if d[kwoffset] not in ('#', None):
+                        raise SyntaxError("Unexpected data after 'else' directive.",
+                                          d.getloc(kwoffset))
+
+                    condstack[-1].makeactive(True)
+                else:
+                    if kword not in conditionkeywords:
+                        raise SyntaxError("Unexpected condition after 'else' directive.",
+                                          d.getloc(kwoffset))
+                        
+                    m = conditionkeywords[kword](d, kwoffset, makefile)
+                    condstack[-1].makeactive(m)
+                continue
+            elif kword == 'override':
+                raise NotImplementedError('no overrides yet')
+            elif kword == 'define':
+                raise NotImplementedError('no defines yet')
+            elif kword == 'include':
+                raise NotImplementedError('no includes yet')
+            elif kword in conditionkeywords:
+                m = conditionkeywords[kword](d, kwoffset, makefile)
+                condstack.append(Condition(m))
+                continue
+
+            if any((not c.active for c in condstack)):
+                log.info('skipping line %i, ifdefed away' % lineno)
+                continue
 
             e, stoppedat = parsemakesyntax(d, 0, ':=', iscommand=False)
             if stoppedat == -1:
@@ -280,10 +421,10 @@ def parsestream(fd, filename, makefile):
                 if stoppedat == -1 or d[stoppedat] == ';':
                     prereqs = data.splitwords(e.resolve(makefile.variables, None))
                     if ispattern:
-                        currule = data.PatternRule(targets, map(data.Pattern, prereqs), doublecolon)
+                        currule = data.PatternRule(targets, map(data.Pattern, prereqs), doublecolon, loc=d.getloc(0))
                         makefile.appendimplicitrule(currule)
                     else:
-                        currule = data.Rule(prereqs, doublecolon)
+                        currule = data.Rule(prereqs, doublecolon, loc=d.getloc(0))
                         for t in targets:
                             makefile.gettarget(t.gettarget()).addrule(currule)
                         makefile.foundtarget(targets[0].gettarget())
@@ -326,7 +467,7 @@ def parsestream(fd, filename, makefile):
 
                     e, stoppedat = parsemakesyntax(d, stoppedat + 1, ';', iscommand=False)
                     prereqs = map(data.Pattern, data.splitwords(e.resolve(makefile.variables, None)))
-                    currule = data.PatternRule([pattern], prereqs, doublecolon)
+                    currule = data.PatternRule([pattern], prereqs, doublecolon, loc=d.getloc(0))
                     for t in targets:
                         makefile.gettarget(t.gettarget()).addrule(currule)
 
@@ -446,18 +587,13 @@ def parsemakesyntax(d, startat, stopon, iscommand):
                 stacktop.expansion.append('$')
             elif c == '(':
                 # look forward for a function name
-                j = i + 1
-                while d[j] == '-' or (d[j] >= 'a' and d[j] <= 'z'):
-                    j += 1
-                fname = d[i + 1:j]
-                if d[j] is not None and d[j].isspace() and fname in functions.functionmap:
+                fname, j = getkeyword(d, i + 1)
+                if fname is not None and fname in functions.functionmap:
                     fn = functions.functionmap[fname](loc)
                     stack.append(ParseStackFrame(PARSESTATE_FUNCTION,
                                                  data.Expansion(), ',)',
                                                  function=fn))
-                    # skip whitespace before the first argument
                     i = j
-                    i = skipwhitespace(d, i + 1)
                     continue
                 else:
                     e = data.Expansion()
