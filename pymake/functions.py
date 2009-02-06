@@ -267,6 +267,16 @@ class ShellFunction(Function):
 
         return stdout
 
+class ErrorFunction(Function):
+    name = 'error'
+
+    def setup(self):
+        self.expectargs(1)
+
+    def resolve(self, variables, setting):
+        v = self._arguments[0].resolve(variables, setting)
+        raise data.DataError(v, self.loc)
+
 functionmap = {
     'subst': SubstFunction,
     'patsubst': PatSubstFunction,
@@ -300,7 +310,7 @@ functionmap = {
     'origin': None,
     'flavor': FlavorFunction,
     'shell': ShellFunction,
-    'error': None,
+    'error': ErrorFunction,
     'warning': None,
     'info': None,
 }
