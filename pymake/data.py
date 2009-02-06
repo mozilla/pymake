@@ -16,6 +16,14 @@ class DataError(Exception):
         return "%s: %s" % (self.loc and self.loc or "internal error",
                            self.message)
 
+class ResolutionError(DataError):
+    """
+    Raised when dependency resolution fails, either due to recursion or to missing
+    prerequisites.This is separately catchable so that implicit rule search can try things
+    without having to commit.
+    """
+    pass
+
 def withoutdups(it):
     r = set()
     for i in it:
@@ -237,6 +245,9 @@ class Pattern(object):
         # context-sensitive!
         self.data = (''.join(r),)
 
+    def ismatchany(self):
+        return self.data == ('','')
+
     def ispattern(self):
         return len(self.data) == 2
 
@@ -313,6 +324,7 @@ class Target(object):
         self.vpathtarget = None
         self.rules = []
         self.variables = Variables(makefile.variables)
+        self.explicit = False
 
     def addrule(self, rule):
         if len(self.rules) and rule.doublecolon != rules[0].doublecolon:
@@ -343,6 +355,66 @@ class Target(object):
 
         return False
 
+    def resolveimplicitrule(self, makefile, targetstack, rulestack):
+        """
+        Try to resolve an implicit rule to build this target.
+        """
+        # The steps in the GNU make manual Implicit-Rule-Search.html are very detailed. I hope they can be trusted.
+
+        candidates = [r
+                      for r in makefile.implicitrules
+                      if r.stemfor(self.target) is not None and len(r.commands) > 0]
+
+        if any((r.ismatchany() for r in candidates)):
+            candidates = [r
+                          for r in candidates
+                          if (not r.ismatchany()) or r.doublecolon]
+
+        for r in candidates:
+            newrulestack = rulestack + [r]
+
+            depfailed = False
+            for p in r.prerequisitesfor(self.target):
+                t = makefile.gettarget(p)
+                try:
+                    t.resolvedeps(makefile, targetstack, newrulestack)
+                except ResolutionError:
+                    depfailed = True
+                    break
+                if t.mtime is None and not t.explicit:
+                    depfailed = True
+                    break
+
+            if depfailed:
+                continue
+
+            self.rules.append(r)
+            return
+
+        # eliminate terminal rules
+        candidates = [r for r in candidates
+                      if not r.doublecolon]
+
+        # Try again, but this time with chaining and love
+
+        for r in candidates:
+            newrulestack = rulestack + [r]
+
+            depfailed = False
+            for p in r.prerequisitesfor(self.target):
+                t = makefile.gettarget(p)
+                try:
+                    t.resolvedeps(makefile, targetstack, newrulestack)
+                except ResolutionError:
+                    depfailed = True
+                    break
+
+            if depfailed:
+                continue
+
+            self.rules.append(r)
+            return
+
     def resolvedeps(self, makefile, targetstack, rulestack):
         """
         Resolve the actual path of this target, using vpath if necessary.
@@ -362,7 +434,7 @@ class Target(object):
         assert makefile.parsingfinished
 
         if self.target in targetstack:
-            raise DataError("Recursive dependency: %s -> %s" % (
+            raise ResolutionError("Recursive dependency: %s -> %s" % (
                     " -> ".join(targetstack), self.target))
 
         targetstack = targetstack + [self.target]
@@ -378,21 +450,18 @@ class Target(object):
                 raise DataError("Target '%s' has multiple rules with commands." % self.target)
 
         if ruleswithcommands == 0:
-            if len(makefile.implicitrules) > 0:
-                raise NotImplementedError("No rules to make '%s', and implicit rules aren't implemented yet!" % (self.target,))
+            found = self.resolveimplicitrule(makefile, targetstack, rulestack)
 
-            # If a target is mentioned, but doesn't exist, has no commands and no
-            # prerequisites, it is special and exists just to say that targets which
-            # depend on it are always out of date. This is like .FORCE but more
-            # compatible with other makes.
-            # Otherwise, we don't know how to make it.
-            if self.mtime is None and \
-                   not any((len(rule.prerequisitesfor(self.target)) > 0
-                        for rule in self.rules)) and \
-                   not len(self.rules):
-                raise DataError("No rule to make %s needed by %s" % (self.target,
-                                                                     ' -> '.join(targetstack[:-1])))
-                    
+        # If a target is mentioned, but doesn't exist, has no commands and no
+        # prerequisites, it is special and exists just to say that targets which
+        # depend on it are always out of date. This is like .FORCE but more
+        # compatible with other makes.
+        # Otherwise, we don't know how to make it.
+        if not len(self.rules) and self.mtime is None and not any((len(rule.prerequisitesfor(self.target)) > 0
+                                                                   for rule in self.rules)):
+            raise ResolutionError("No rule to make %s needed to make %s" % (self.target,
+                                      ' -> '.join(targetstack[:-1])))
+
         for r in self.rules:
             newrulestack = rulestack + [r]
             for d in r.prerequisitesfor(self.target):
@@ -540,24 +609,29 @@ class PatternRule(object):
         assert isinstance(c, Expansion)
         self.commands.append(c)
 
+    def ismatchany(self):
+        return any((t.ismatchany() for t in self.targetpatterns))
+
     def stemfor(self, t):
         for p in self.targetpatterns:
             stem = p.match(t)
             if stem is not None:
                 return stem
 
-        raise DataError("Assert: target doesn't match any of our target patterns")
+        return None
 
     def prerequisitesfor(self, t=None, stem=None):
         if stem is None:
             stem = self.stemfor(t)
 
+        assert stem is not None
         return [p.resolve(stem) for p in self.prerequisites]
 
     def execute(self, target, makefile):
         assert isinstance(target, Target)
 
         stem = self.stemfor(target.target)
+        assert stem is not None
 
         v = Variables(parent=target.variables)
         setautomaticvariables(v, makefile, target, self.prerequisitesfor(stem=stem))
@@ -636,3 +710,10 @@ class Makefile(object):
             self.vpath = []
         else:
             self.vpath = filter(lambda e: e != '', re.split('[:\s]+', value.resolve(self.variables, 'VPATH')))
+
+        targets = list(self._targets.itervalues())
+        for t in targets:
+            t.explicit = True
+            for r in t.rules:
+                for p in r.prerequisitesfor(t.target):
+                    self.gettarget(p).explicit = True
