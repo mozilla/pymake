@@ -3,6 +3,7 @@ Makefile functions.
 """
 
 from pymake import data
+import subprocess
 
 log = data.log
 
@@ -247,6 +248,25 @@ class FlavorFunction(Function):
 
         assert False, "Neither simple nor recursive?"
 
+class ShellFunction(Function):
+    name = 'shell'
+
+    def setup(self):
+        self.expectargs(1)
+
+    def resolve(self, variables, setting):
+        cline = self._arguments[0].resolve(variables, setting)
+
+        p = subprocess.Popen(cline, shell=True, stdout=subprocess.PIPE)
+        stdout, stderr = p.communicate()
+
+        stdout.replace('\r\n', '\n')
+        if len(stdout) > 1 and stdout[-1] == '\n':
+            stdout = stdout[:-1]
+        stdout.replace('\n', ' ')
+
+        return stdout
+
 functionmap = {
     'subst': SubstFunction,
     'patsubst': PatSubstFunction,
@@ -279,7 +299,7 @@ functionmap = {
     'eval': None,
     'origin': None,
     'flavor': FlavorFunction,
-    'shell': None,
+    'shell': ShellFunction,
     'error': None,
     'warning': None,
     'info': None,

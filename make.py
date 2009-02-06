@@ -6,7 +6,7 @@ make.py
 A drop-in or mostly drop-in replacement for GNU make.
 """
 
-import os, subprocess, sys
+import os, subprocess, sys, logging
 from optparse import OptionParser
 from pymake.data import Makefile, DataError
 from pymake.parser import parsestream, parsecommandlineargs, SyntaxError
@@ -16,8 +16,14 @@ op.add_option('-f', '--file', '--makefile',
               action='append',
               dest='makefiles',
               default=[])
+op.add_option('-v', '--verbose',
+              action="store_true",
+              dest="verbose", default=True)
 
 options, arguments = op.parse_args()
+
+if options.verbose:
+    logging.basicConfig(level=logging.DEBUG)
 
 m = Makefile()
 if len(options.makefiles) == 0:

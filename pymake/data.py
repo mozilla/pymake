@@ -376,10 +376,18 @@ class Target(object):
             if len(makefile.implicitrules) > 0:
                 raise NotImplementedError("No rules to make '%s', and implicit rules aren't implemented yet!" % (self.target,))
 
-            if self.mtime is None:
+            # If a target is mentioned, but doesn't exist, has no commands and no
+            # prerequisites, it is special and exists just to say that targets which
+            # depend on it are always out of date. This is like .FORCE but more
+            # compatible with other makes.
+            # Otherwise, we don't know how to make it.
+            if self.mtime is None and \
+                   not any((len(rule.prerequisitesfor(self.target)) > 0
+                        for rule in self.rules)) and \
+                   not len(self.rules):
                 raise DataError("No rule to make %s needed by %s" % (self.target,
                                                                      ' -> '.join(targetstack[:-1])))
-
+                    
         for r in self.rules:
             newrulestack = rulestack + [r]
             for d in r.prerequisitesfor(self.target):
@@ -408,7 +416,7 @@ class Target(object):
 
         if self.isdoublecolon():
             for r in self.rules:
-                remake = False
+                remake = self.mtime is None
                 depcount = 0
                 for p in r.prerequisitesfor(self.target):
                     depcount += 1
@@ -420,7 +428,7 @@ class Target(object):
                     rule.execute(self, makefile)
         else:
             commandrule = None
-            remake = False
+            remake = self.mtime is None
             depcount = 0
 
             for r in self.rules:
@@ -432,9 +440,10 @@ class Target(object):
                     dep = makefile.gettarget(p)
                     dep.make(makefile)
                     if mtimeislater(dep.mtime, self.mtime):
+                        log.info("Remaking %s because %s is newer" % (self.target, dep.target))
                         remake = True
 
-            if commandrule is not None and (remake or depcount == 0):
+            if commandrule is not None and remake:
                 commandrule.execute(self, makefile)
 
 def setautomaticvariables(v, makefile, target, prerequisites):

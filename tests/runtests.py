@@ -4,6 +4,8 @@ walk the directory for files named .mk and run each.
 
 For each test, we run gmake -f test.mk. By default, make must exit with an exit code of 0, and must print 'TEST-PASS'.
 
+Each test is run in an empty directory.
+
 The test file may contain lines at the beginning to alter the default behavior. These are all evaluated as python:
 
 #T commandline: ['extra', 'params', 'here']
@@ -12,11 +14,13 @@ The test file may contain lines at the beginning to alter the default behavior. 
 
 from subprocess import Popen, PIPE, STDOUT
 from optparse import OptionParser
-import os, re, sys
+import os, re, sys, shutil
 
 o = OptionParser()
 o.add_option('-m', '--make',
              dest="make", default="gmake")
+o.add_option('-d', '--tempdir',
+             dest="tempdir", default="_mktests")
 opts, args = o.parse_args()
 
 if len(args) == 0:
@@ -40,7 +44,10 @@ tre = re.compile('^#T ([a-z]+): (.*)$')
 for makefile in makefiles:
     print "Testing: %s" % makefile,
 
-    cline = [opts.make, '-f', makefile]
+    if os.path.exists(opts.tempdir): shutil.rmtree(opts.tempdir)
+    os.mkdir(opts.tempdir, 0755)
+
+    cline = [opts.make, '-f', os.path.abspath(makefile)]
     returncode = 0
 
     mdata = open(makefile)
@@ -60,7 +67,7 @@ for makefile in makefiles:
 
     mdata.close()
 
-    p = Popen(cline, stdout=PIPE, stderr=STDOUT)
+    p = Popen(cline, stdout=PIPE, stderr=STDOUT, cwd=opts.tempdir)
     stdout, d = p.communicate()
     if p.returncode != returncode:
         print "FAIL (returncode=%i)" % p.returncode
@@ -76,3 +83,5 @@ for makefile in makefiles:
             print stdout
     else:
         print "EXPECTED-FAIL"
+
+shutil.rmtree(opts.tempdir)
