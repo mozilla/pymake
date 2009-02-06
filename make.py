@@ -30,7 +30,8 @@ if len(options.makefiles) == 0:
     if os.path.exists('Makefile'):
         options.makefiles.append('Makefile')
     else:
-        raise Error("No makefile found")
+        print "No makefile found"
+        sys.exit(2)
 
 try:
     targets = parsecommandlineargs(m, arguments)
