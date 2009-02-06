@@ -357,8 +357,35 @@ def parsestream(fd, filename, makefile):
                     else:
                         for target in targets:
                             setvariable(makefile.gettarget(target.gettarget()).variables, vname, d[stoppedat] == '=', value)
+                elif d[stoppedat] == '|':
+                    raise NotImplementedError('order-only prerequisites not implemented')
+                elif d[stoppedat] == ';':
+                    raise NotImplementedError('rule after command not implemented')
                 else:
-                    raise NotImplementedError()
+                    assert d[stoppedat] == ':'
+
+                    # static pattern rule
+                    if ispattern:
+                        raise SyntaxError("static pattern rules must have static targets")
+
+                    patstr = e.resolve(makefile.variables, None)
+                    patterns = data.splitwords(patstr)
+                    if len(patterns) != 1:
+                        raise SyntaxError("A static pattern rule may have only one pattern", d.getloc(stoppedat))
+
+                    pattern = data.Pattern(patterns[0])
+
+                    e, stoppedat = parsemakesyntax(d, stoppedat, ';')
+                    prereqs = map(data.Pattern, data.splitwords(e.resolve(makefile.variables, None)))
+                    currule = data.PatternRule([pattern], prereqs, doublecolon)
+                    for t in targets:
+                        makefile.gettarget(t.gettarget()).addrule(currule)
+
+                    makefile.foundtarget(targets[0].gettarget())
+
+                    if stoppedat != -1:
+                        assert d[stoppedat] == ';'
+                        raise NotImplementedError('rule after command not implemented')
 
 PARSESTATE_TOPLEVEL = 0    # at the top level
 PARSESTATE_FUNCTION = 1    # expanding a function call. data is function
