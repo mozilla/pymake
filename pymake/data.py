@@ -103,6 +103,11 @@ class Expansion(object):
             assert len(self) == 1 or not isinstance(self[-2], str), "Strings didn't fold"
             self[-1] = self[-1].rstrip()
 
+    def trimlastnewline(self):
+        """Strip only the last newline, if present."""
+        if len(self) > 0 and isinstance(self[-1], str) and self[-1][-1] == '\n':
+            self[-1] = self[-1][:-1]
+
     def resolve(self, variables, setting):
         """
         Resolve this variable into a value, by interpolating the value
@@ -463,6 +468,27 @@ def setautomaticvariables(v, makefile, target, prerequisites):
     # TODO '|'
     # TODO all the D and F variants
 
+def splitcommand(command):
+    """
+    Using the esoteric rules, split command lines by unescaped newlines.
+    """
+    start = 0
+    i = 0
+    while i < len(command):
+        c = command[i]
+        if c == '\\':
+            i += 1
+        elif c == '\n':
+            yield command[start:i]
+            i += 1
+            start = i
+            continue
+
+        i += 1
+
+    if i > start:
+        yield command[start:i]
+
 class Rule(object):
     """
     A rule contains a list of prerequisites and a list of commands. It may also
@@ -491,9 +517,12 @@ class Rule(object):
 
         for c in self.commands:
             cstring = c.resolve(v, None)
-            if cstring[0:1] == '@':
-                cstring = cstring[1:]
-            subprocess.check_call(cstring, shell=True)
+            for cline in splitcommand(cstring):
+                if cline[0:1] == '@':
+                    cline = cline[1:]
+                if not len(cline) or cline.isspace():
+                    continue
+                subprocess.check_call(cline, shell=True)
 
 class PatternRule(object):
     """
