@@ -101,7 +101,7 @@ class MakeSyntaxTest(TestBase):
             d = pymake.parser.Data(None, None)
             d.append(s, pymake.parser.Location('testdata', 1, 0))
 
-            a, stoppedat = pymake.parser.parsemakesyntax(d, startat, stopat, iscommand=False)
+            a, stoppedat = pymake.parser.parsemakesyntax(d, startat, stopat, pymake.parser.PARSESTYLE_MAKEFILE)
             self.compareRecursive(a, expansion, [])
             self.assertEqual(stoppedat, stopoffset)
 
