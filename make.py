@@ -43,7 +43,8 @@ try:
 
     if len(targets) == 0:
         if m.defaulttarget is None:
-            raise Error("No target specified and no default target found.")
+            print "No target specified and no default target found."
+            sys.exit(2)
         targets = [m.defaulttarget]
 
     tlist = [m.gettarget(t) for t in targets]
