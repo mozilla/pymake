@@ -40,7 +40,7 @@ def mtimeislater(deptime, targettime):
         return True
     if targettime is None:
         return False
-    return mt > mto
+    return deptime > targettime
 
 def getmtime(path):
     try:
@@ -388,6 +388,7 @@ class Target(object):
             if depfailed:
                 continue
 
+            log.info("Found implicit rule at %s for target '%s'" % (r.loc, self.target))
             self.rules.append(r)
             return
 
@@ -412,8 +413,11 @@ class Target(object):
             if depfailed:
                 continue
 
+            log.info("Found implicit rule at %s for target '%s'" % (r.loc, self.target))
             self.rules.append(r)
             return
+
+        log.info("Couldn't find implicit rule to remake '%s'" % (self.target,))
 
     def resolvedeps(self, makefile, targetstack, rulestack):
         """
@@ -480,6 +484,13 @@ class Target(object):
             self.vpathtarget = self.target
             self.mtime = getmtime(self.target)
         
+    def remake(self):
+        """
+        When we remake ourself, we need to reset our mtime and vpathtarget
+        """
+        self.mtime = None
+        self.vpathtarget = self.target
+
     def make(self, makefile):
         """
         If we are out of date, make ourself.
@@ -502,6 +513,7 @@ class Target(object):
                         remake = True
                 if remake:
                     rule.execute(self, makefile)
+                    self.remake()
         else:
             commandrule = None
             remake = False
@@ -522,6 +534,7 @@ class Target(object):
 
             if commandrule is not None and remake:
                 commandrule.execute(self, makefile)
+                self.remake()
 
 def setautomaticvariables(v, makefile, target, prerequisites):
     v.set('@', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, Expansion.fromstring(target.target))
@@ -603,6 +616,7 @@ class PatternRule(object):
         self.targetpatterns = targetpatterns
         self.prerequisites = prerequisites
         self.doublecolon = doublecolon
+        self.loc = loc
         self.commands = []
 
     def addcommand(self, c):
