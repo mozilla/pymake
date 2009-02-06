@@ -1,6 +1,5 @@
-#T returncode: 2
-
 all:
-	test "$(TESTVAR)" = "testval"
+	test '$(TESTVAR)' = 'testval\'
+	@echo TEST-PASS
 
 TESTVAR = testval\

@@ -9,46 +9,6 @@ class TestBase(unittest.TestCase):
         """Actually print the values which weren't equal, if things don't work out!"""
         unittest.TestCase.assertEqual(self, a, b, "%s got %r expected %r" % (msg, a, b))
 
-class FindCommentTest(TestBase):
-    testdata = (
-        ("Hello # Comment", 6),
-        ("# Line comment", 0),
-        ("No comment", -1),
-    )
-
-    def runTest(self):
-        for line, expected in self.testdata:
-            self.assertEqual(pymake.parser.findcommenthash(line), expected,
-                             "findcommenthash: %r" % (line,) )
-
-class IsContinuationTest(TestBase):
-    testdata = (
-        ("Hello", False),
-        ("Hello \\", False),
-        ("Hello \\\n", True),
-        ("Hello \\\\", False),
-        ("Hello \\\\\n", False),
-    )
-
-    def runTest(self):
-        for line, expected in self.testdata:
-            self.assertEqual(pymake.parser.iscontinuation(line), expected,
-                             "iscontinuation: %r" % (line,) )
-
-class LStripCountTest(TestBase):
-    testdata = (
-        ("Hello", 0, "Hello"),
-        ("  Hello", 2, "Hello"),
-        ("\tHello", 4, "Hello"),
-        ("\t  Hello  ", 6, "Hello  "),
-    )
-
-    def runTest(self):
-        for line, col, result in self.testdata:
-            aresult, acol = pymake.parser.lstripcount(line)
-            self.assertEqual(acol, col, "lstripcount column: %r" % (line,))
-            self.assertEqual(aresult, result, "lstripcount result: %r" % (line,))
-
 class DataTest(TestBase):
     testdata = (
         ((("He\tllo", "f", 1, 0),),
@@ -59,7 +19,7 @@ class DataTest(TestBase):
 
     def runTest(self):
         for datas, results in self.testdata:
-            d = pymake.parser.Data()
+            d = pymake.parser.Data(None, None)
             for line, file, lineno, col in datas:
                 d.append(line, pymake.parser.Location(file, lineno, col))
             for pos, file, lineno, col in results:
@@ -138,10 +98,10 @@ class MakeSyntaxTest(TestBase):
 
     def runTest(self):
         for s, startat, stopat, stopoffset, expansion in self.testdata:
-            d = pymake.parser.Data()
+            d = pymake.parser.Data(None, None)
             d.append(s, pymake.parser.Location('testdata', 1, 0))
 
-            a, stoppedat = pymake.parser.parsemakesyntax(d, startat, stopat)
+            a, stoppedat = pymake.parser.parsemakesyntax(d, startat, stopat, iscommand=False)
             self.compareRecursive(a, expansion, [])
             self.assertEqual(stoppedat, stopoffset)
 
