@@ -255,7 +255,7 @@ def parsestream(fd, filename, makefile):
             d = Data()
             isc = iscontinuation(line)
             if not isc:
-                line = line[:-1] # strip newline
+                line = line.rstrip('\n')
             d.append(line[1:], Location(filename, lineno, tabwidth))
             while isc:
                 lineno, line = fdlines.next()
@@ -265,7 +265,7 @@ def parsestream(fd, filename, makefile):
                     line = line[1:]
                 isc = iscontinuation(line)
                 if not isc:
-                    line = line[:-1] # strip newline
+                    line = line.rstrip('\n')
                 d.append(line, Location(filename, lineno, startcol))
             currule.addcommand(parsetoend(d, 0, False))
         else:
