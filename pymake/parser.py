@@ -277,7 +277,7 @@ def parsestream(fd, filename, makefile):
 
                 stoppedat += 1
                 e, stoppedat = parsemakesyntax(d, stoppedat, ':=|;', iscommand=False)
-                if stoppedat == -1:
+                if stoppedat == -1 or d[stoppedat] == ';':
                     prereqs = data.splitwords(e.resolve(makefile.variables, None))
                     if ispattern:
                         currule = data.PatternRule(targets, map(data.Pattern, prereqs), doublecolon)
@@ -287,6 +287,12 @@ def parsestream(fd, filename, makefile):
                         for t in targets:
                             makefile.gettarget(t.gettarget()).addrule(currule)
                         makefile.foundtarget(targets[0].gettarget())
+
+                    if stoppedat != -1:
+                        e, stoppedat = parsemakesyntax(d, stoppedat + 1, '', iscommand=True)
+                        assert stoppedat == -1
+                        e.lstrip()
+                        currule.addcommand(e)
                 elif d[stoppedat] == '=' or d[stoppedat:stoppedat+2] == ':=':
                     isrecursive = d[stoppedat] == '='
                     e.lstrip()
@@ -304,8 +310,6 @@ def parsestream(fd, filename, makefile):
                             setvariable(makefile.gettarget(target.gettarget()).variables, vname, isrecursive, value)
                 elif d[stoppedat] == '|':
                     raise NotImplementedError('order-only prerequisites not implemented')
-                elif d[stoppedat] == ';':
-                    raise NotImplementedError('rule after command not implemented')
                 else:
                     assert d[stoppedat] == ':'
 
@@ -329,8 +333,10 @@ def parsestream(fd, filename, makefile):
                     makefile.foundtarget(targets[0].gettarget())
 
                     if stoppedat != -1:
-                        assert d[stoppedat] == ';'
-                        raise NotImplementedError('rule after command not implemented')
+                        e, stoppedat = parsemakesyntax(d, stoppedat + 1, '', iscommand=True)
+                        assert stoppedat == -1
+                        e.lstrip()
+                        currule.addcommand(e)
 
 PARSESTATE_TOPLEVEL = 0    # at the top level
 PARSESTATE_FUNCTION = 1    # expanding a function call. data is function
