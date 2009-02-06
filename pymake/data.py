@@ -376,6 +376,10 @@ class Target(object):
             if len(makefile.implicitrules) > 0:
                 raise NotImplementedError("No rules to make '%s', and implicit rules aren't implemented yet!" % (self.target,))
 
+            if self.mtime is None:
+                raise DataError("No rule to make %s needed by %s" % (self.target,
+                                                                     ' -> '.join(targetstack[:-1])))
+
         for r in self.rules:
             newrulestack = rulestack + [r]
             for d in r.prerequisitesfor(self.target):
@@ -432,7 +436,21 @@ class Target(object):
 
             if commandrule is not None and (remake or depcount == 0):
                 commandrule.execute(self, makefile)
-                
+
+def setautomaticvariables(v, makefile, target, prerequisites):
+    v.set('@', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, Expansion.fromstring(target.target))
+
+    if len(prerequisites):
+        v.set('<', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, Expansion.fromstring(prerequisites[0]))
+
+    # TODO '?'
+    v.set('^', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
+          Expansion.fromstring(' '.join(withoutdups(prerequisites))))
+    v.set('+', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
+          Expansion.fromstring(' '.join(prerequisites)))
+    # TODO '|'
+    # TODO all the D and F variants
+
 class Rule(object):
     """
     A rule contains a list of prerequisites and a list of commands. It may also
@@ -456,19 +474,8 @@ class Rule(object):
         assert isinstance(target, Target)
 
         v = Variables(parent=target.variables)
-        v.set('@', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, Expansion.fromstring(target.target))
-
-        if len(self.prerequisites):
-            v.set('<', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, Expansion.fromstring(self.prerequisites[0]))
-
-        # TODO '?'
-        v.set('^', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
-              Expansion.fromstring(' '.join(withoutdups(self.prerequisites))))
-        v.set('+', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
-              Expansion.fromstring(' '.join(self.prerequisites)))
-        # TODO '|'
-        # TODO (or not?) $*
-        # TODO all the D and F variants
+        setautomaticvariables(v, makefile, target, self.prerequisites)
+        # TODO: $* in non-pattern rules sucks
 
         for c in self.commands:
             cstring = c.resolve(v, None)
@@ -492,8 +499,35 @@ class PatternRule(object):
         assert isinstance(c, Expansion)
         self.commands.append(c)
 
-    def prerequisitesfor(self, t):
-        raise NotImplementedError()
+    def stemfor(self, t):
+        for p in self.targetpatterns:
+            stem = p.match(t)
+            if stem is not None:
+                return stem
+
+        raise DataError("Assert: target doesn't match any of our target patterns")
+
+    def prerequisitesfor(self, t=None, stem=None):
+        if stem is None:
+            stem = self.stemfor(t)
+
+        return [p.resolve(stem) for p in self.prerequisites]
+
+    def execute(self, target, makefile):
+        assert isinstance(target, Target)
+
+        stem = self.stemfor(target.target)
+
+        v = Variables(parent=target.variables)
+        setautomaticvariables(v, makefile, target, self.prerequisitesfor(stem=stem))
+        v.set('*', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
+              Expansion.fromstring(stem))
+
+        for c in self.commands:
+            cstring = c.resolve(v, None)
+            if cstring[0:1] == '@':
+                cstring = cstring[1:]
+            subprocess.check_call(cstring, shell=True)
 
 class Makefile(object):
     def __init__(self):

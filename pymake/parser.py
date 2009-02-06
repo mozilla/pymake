@@ -324,7 +324,7 @@ def parsestream(fd, filename, makefile):
 
                     pattern = data.Pattern(patterns[0])
 
-                    e, stoppedat = parsemakesyntax(d, stoppedat, ';', iscommand=False)
+                    e, stoppedat = parsemakesyntax(d, stoppedat + 1, ';', iscommand=False)
                     prereqs = map(data.Pattern, data.splitwords(e.resolve(makefile.variables, None)))
                     currule = data.PatternRule([pattern], prereqs, doublecolon)
                     for t in targets:
