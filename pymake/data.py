@@ -483,9 +483,20 @@ class Target(object):
             self.mtime = None
 
         if self.vpathtarget is None:
-            # TODO: the vpath is a figment of your imagination
+            search = [self.target]
+            if not os.path.isabs(self.target):
+                search += [os.path.join(dir, self.target)
+                           for dir in makefile.vpath]
+
+            for t in search:
+                mtime = getmtime(t)
+                if mtime is not None:
+                    self.vpathtarget = t
+                    self.mtime = mtime
+                    return
+
             self.vpathtarget = self.target
-            self.mtime = getmtime(self.target)
+            self.mtime = None
         
     def remake(self):
         """
@@ -502,7 +513,9 @@ class Target(object):
         """
         assert self.vpathtarget is not None, "Target was never resolved!"
 
-        if self.isdoublecolon():
+        if len(self.rules) == 0:
+            assert self.mtime is not None
+        elif self.isdoublecolon():
             for r in self.rules:
                 remake = False
                 if self.mtime is None:
@@ -540,16 +553,19 @@ class Target(object):
                 self.remake()
 
 def setautomaticvariables(v, makefile, target, prerequisites):
-    v.set('@', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, Expansion.fromstring(target.target))
+    vprereqs = [makefile.gettarget(p).vpathtarget
+                for p in prerequisites]
 
-    if len(prerequisites):
-        v.set('<', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, Expansion.fromstring(prerequisites[0]))
+    v.set('@', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, Expansion.fromstring(target.vpathtarget))
+
+    if len(vprereqs):
+        v.set('<', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, Expansion.fromstring(vprereqs[0]))
 
     # TODO '?'
     v.set('^', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
-          Expansion.fromstring(' '.join(withoutdups(prerequisites))))
+          Expansion.fromstring(' '.join(withoutdups(vprereqs))))
     v.set('+', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
-          Expansion.fromstring(' '.join(prerequisites)))
+          Expansion.fromstring(' '.join(vprereqs)))
     # TODO '|'
     # TODO all the D and F variants
 
