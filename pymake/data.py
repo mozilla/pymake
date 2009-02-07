@@ -262,6 +262,9 @@ class Pattern(object):
         assert not self.ispattern()
         return self.data[0]
 
+    def hasslash(self):
+        return self.data[0].find('/') != -1 or self.data[1].find('/') != -1
+
     def match(self, word):
         """
         Match this search pattern against a word (string).
@@ -280,9 +283,9 @@ class Pattern(object):
             return None
         return m.group(1)
 
-    def resolve(self, stem):
+    def resolve(self, dir, stem):
         if self.ispattern():
-            return self.data[0] + stem + self.data[1]
+            return dir + self.data[0] + stem + self.data[1]
 
         return self.data[0]
 
@@ -305,7 +308,7 @@ class Pattern(object):
             # if we're not a pattern, the replacement is not parsed as a pattern either
             return replacement
 
-        return Pattern(replacement).resolve(stem)
+        return Pattern(replacement).resolve('', stem)
 
 class Target(object):
     """
@@ -363,7 +366,7 @@ class Target(object):
 
         candidates = [r
                       for r in makefile.implicitrules
-                      if r.stemfor(self.target) is not None and len(r.commands) > 0]
+                      if r.matchfor(self.target) is not None and len(r.commands) > 0]
 
         if any((r.ismatchany() for r in candidates)):
             candidates = [r
@@ -626,29 +629,45 @@ class PatternRule(object):
     def ismatchany(self):
         return any((t.ismatchany() for t in self.targetpatterns))
 
-    def stemfor(self, t):
+    def matchfor(self, t):
+        """
+        Determine whether and how this rule might match target t.
+        @returns a tuple (dir, stem) if this rule matches, or None
+        """
+
         for p in self.targetpatterns:
             stem = p.match(t)
             if stem is not None:
-                return stem
+                return ('', stem)
+
+        dir, s, path = t.rpartition('/')
+        if s == '':
+            return None
+
+        for p in self.targetpatterns:
+            if p.hasslash():
+                continue
+
+            stem = p.match(path)
+            if stem is not None:
+                return (dir + s, stem)
 
         return None
 
-    def prerequisitesfor(self, t=None, stem=None):
+    def prerequisitesfor(self, t=None, dir=None, stem=None):
         if stem is None:
-            stem = self.stemfor(t)
+            dir, stem = self.matchfor(t)
 
-        assert stem is not None
-        return [p.resolve(stem) for p in self.prerequisites]
+        return [p.resolve(dir, stem) for p in self.prerequisites]
 
     def execute(self, target, makefile):
         assert isinstance(target, Target)
 
-        stem = self.stemfor(target.target)
-        assert stem is not None
+        dir, stem = self.matchfor(target.target)
 
         v = Variables(parent=target.variables)
-        setautomaticvariables(v, makefile, target, self.prerequisitesfor(stem=stem))
+        setautomaticvariables(v, makefile, target,
+                              self.prerequisitesfor(stem=stem, dir=dir))
         v.set('*', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
               Expansion.fromstring(stem))
 
