@@ -528,8 +528,8 @@ class Target(object):
                         log.info("Remaking %s using rule at %s because %s is newer." % (self.target, r.loc, p))
                         remake = True
                 if remake:
-                    rule.execute(self, makefile)
                     self.remake()
+                    rule.execute(self, makefile)
         else:
             commandrule = None
             remake = False
@@ -549,8 +549,8 @@ class Target(object):
                         remake = True
 
             if commandrule is not None and remake:
-                commandrule.execute(self, makefile)
                 self.remake()
+                commandrule.execute(self, makefile)
 
 def setautomaticvariables(v, makefile, target, prerequisites):
     vprereqs = [makefile.gettarget(p).vpathtarget
