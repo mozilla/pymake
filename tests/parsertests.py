@@ -4,6 +4,14 @@ import logging
 
 from cStringIO import StringIO
 
+def multitest(cls):
+    for i in xrange(0, len(cls.testdata)):
+        def m(self, i=i):
+            return self.runSingle(*self.testdata[i])
+
+        setattr(cls, 'test_%i' % i, m)
+    return cls
+
 class TestBase(unittest.TestCase):
     def assertEqual(self, a, b, msg=""):
         """Actually print the values which weren't equal, if things don't work out!"""
@@ -27,6 +35,85 @@ class DataTest(TestBase):
                 self.assertEqual(loc.path, file, "data file")
                 self.assertEqual(loc.line, lineno, "data line")
                 self.assertEqual(loc.column, col, "data %r col, got %i expected %i" % (d.data, loc.column, col))
+
+class IterTest(TestBase):
+    testdata = (
+        (
+            pymake.parser.iterdata,
+            "plaindata # test\n",
+            "plaindata # test\n"
+        ),
+        (
+            pymake.parser.itermakefilechars,
+            "VAR = val # comment",
+            "VAR = val "
+        ),
+        (
+            pymake.parser.itermakefilechars,
+            "VAR = val \# escaped hash\n",
+            "VAR = val # escaped hash"
+        ),
+        (
+            pymake.parser.itermakefilechars,
+            "VAR = VAL  \\\n  continuation # comment \\\n  continuation",
+            "VAR = VAL continuation "
+        ),
+        (
+            pymake.parser.itermakefilechars,
+            "VAR = VAL  \\\\# comment\n",
+            "VAR = VAL  \\"
+        ),
+        (
+            pymake.parser.itercommandchars,
+            "echo boo # comment\n",
+            "echo boo # comment",
+        ),
+        (
+            pymake.parser.itercommandchars,
+            "echo boo \# comment\n",
+            "echo boo \# comment",
+        ),
+        (
+            pymake.parser.itercommandchars,
+            "echo boo # \\\n\t  command 2\n",
+            "echo boo # \\\n  command 2"
+        ),
+        (
+            pymake.parser.iterdefinechars,
+            "endef",
+            ""
+        ),
+        (
+            pymake.parser.iterdefinechars,
+            """define BAR # comment
+random text
+endef not what you think!
+endef # comment is ok\n""",
+            """define BAR # comment
+random text
+endef not what you think!"""
+        ),
+        (
+            pymake.parser.iterdefinechars,
+            """value \\
+endef
+endef\n""",
+            "value \\\nendef"
+        ),
+    )
+
+    def runSingle(self, ifunc, idata, expected):
+        fd = StringIO(idata)
+        lineiter = pymake.parser.iterlines(fd)
+
+        d = pymake.parser.Data(lineiter, 'PlainIterTest-data')
+        d.readline()
+
+        actual = ''.join( (c for c, offset, location in ifunc(d, 0)) )
+        self.assertEqual(actual, expected)
+
+        self.assertRaises(StopIteration, lambda: fd.next())
+multitest(IterTest)
 
 class MakeSyntaxTest(TestBase):
     # (string, startat, stopat, stopoffset, expansion
@@ -171,7 +258,6 @@ all:: test test2 $(VAR)
         self.assertEqual(len(irule.targetpatterns), 1, "%.o target pattern count")
         self.assertEqual(len(irule.prerequisites), 1, "%.o prerequisite count")
         self.assertEqual(irule.targetpatterns[0].match('foo.o'), 'foo', "%.o stem")
-        self.assertEqual(irule.prerequisites[0].resolve(irule.targetpatterns[0].match('foo.o')), 'foo.c')
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)

@@ -126,7 +126,175 @@ class Data(object):
         begin, loc = findlast(lambda (o, l): o <= offset, self._locs)
         return loc + self.data[begin:offset]
 
-def _iterlines(fd):
+    def skipwhitespace(self, offset):
+        """
+        Return the offset into data after skipping whitespace.
+        """
+        while offset < len(self.data):
+            c = self.data[offset]
+            if not c.isspace():
+                break
+            offset += 1
+        return offset
+
+    def findtoken(self, o, tlist):
+        """
+        Check data at position o for any of the tokens in tlist followed by whitespace
+        or end-of-data.
+
+        If a token is found, skip trailing whitespace and return (token, newoffset).
+        Otherwise return None, oldoffset
+        """
+        for t in tlist:
+            end = o + len(t)
+            if self.data[o:end] == t and (end == len(self.data) or self.data[end].isspace()):
+                end = self.skipwhitespace(end)
+                return t, end
+        return None, o
+
+def iterdata(d, offset):
+    """
+    A Data iterator yielding (char, offset, location) without any escaping.
+    """
+    while offset < len(d.data):
+        yield d.data[offset], offset, d.getloc(offset)
+        offset += 1
+
+def itermakefilechars(d, offset):
+    """
+    A Data generator yielding (char, offset, location). It will escape comments and newline
+    continuations according to makefile syntax rules.
+    """
+
+    while offset < len(d.data):
+        c = d.data[offset]
+        if c == '\n':
+            assert offset == len(d.data) - 1
+            return
+
+        if c == '#':
+            while offset < len(d.data):
+                c = d.data[offset]
+                if c == '\\' and offset < len(d.data) - 1:
+                    offset += 1
+                    c = d.data[offset]
+                    if c == '\n':
+                        assert offset == len(d.data) - 1, 'unexpected newline'
+                        d.readline()
+                offset += 1
+            return
+        elif c == '\\' and offset < len(d.data) - 1:
+            c2 = d.data[offset + 1]
+            if c2 == '#':
+                offset += 1
+                yield '#', offset, d.getloc(offset)
+                offset += 1
+            elif d[offset:offset + 3] == '\\\\#':
+                # see escape-chars.mk VARAWFUL
+                offset += 1
+                yield '\\', offset, d.getloc(offset)
+                offset += 1
+            elif c2 == '\n':
+                yield ' ', offset, d.getloc(offset)
+                d.readline()
+                offset = d.skipwhitespace(offset + 2)
+            else:
+                yield c, offset, d.getloc(offset)
+                offset += 1
+        else:
+            if c.isspace():
+                o = d.skipwhitespace(offset)
+                if d.data[o:o+2] == '\\\n':
+                    offset = o
+                    continue
+
+            yield c, offset, d.getloc(offset)
+            offset += 1
+
+def itercommandchars(d, offset):
+    """
+    A Data generator yielding (char, offset, location). It will process escapes and newlines
+    according to command parsing rules.
+    """
+
+    while offset < len(d.data):
+        c = d.data[offset]
+        if c == '\n':
+            assert offset == len(d.data) - 1
+            return
+
+        yield c, offset, d.getloc(offset)
+        offset += 1
+
+        if c == '\\':
+            if offset == len(d.data):
+                return
+
+            c = d.data[offset]
+            yield c, offset, d.getloc(offset)
+
+            offset += 1
+
+            if c == '\n':
+                assert offset == len(d.data)
+                d.readline()
+                if offset < len(d.data) and d.data[offset] == '\t':
+                    offset += 1
+
+def iterdefinechars(d, offset):
+    """
+    A Data generator yielding (char, offset, location). It will process define/endef
+    according to define parsing rules.
+    """
+
+    def checkfortoken(o):
+        """
+        Check for a define or endef token on the line starting at o.
+        Return an integer for the direction of definecount.
+        """
+        if o >= len(d.data):
+            return 0
+
+        if d.data[o] == '\t':
+            return 0
+
+        o = d.skipwhitespace(o)
+        token, o = d.findtoken(o, ('define', 'endef'))
+        if token == 'define':
+            return 1
+
+        if token == 'endef':
+            return -1
+        
+        return 0
+
+    startoffset = offset
+    definecount = 1 + checkfortoken(offset)
+    if definecount == 0:
+        return
+
+    while offset < len(d.data):
+        c = d.data[offset]
+
+        if c == '\n':
+            d.readline()
+            definecount += checkfortoken(offset + 1)
+            if definecount == 0:
+                return
+
+        yield c, offset, d.getloc(offset)
+        offset += 1
+
+        if c == '\\' and offset < len(d.data) and d.data[offset] == '\n':
+            yield '\n', offset, d.getloc(offset)
+            d.readline()
+            offset += 1
+
+    # Unlike the other iterators, if you fall off this one there is an unterminated
+    # define.
+    raise SyntaxError("Unterminated define", d.getloc(startoffset))
+
+def iterlines(fd):
     """Yield (lineno, line) for each line in fd"""
 
     lineno = 0
@@ -150,19 +318,8 @@ def getkeyword(d, offset):
             i += 1
             continue
         if i > offset and (c is None or c.isspace()):
-            return d[offset:i], skipwhitespace(d, i)
+            return d[offset:i], d.skipwhitespace(i)
         return None, i
-
-def skipwhitespace(d, offset):
-    """
-    Return the offset into data after skipping whitespace.
-    """
-    while True:
-        c = d[offset]
-        if c is None or not c.isspace():
-            break
-        offset += 1
-    return offset
 
 def setvariable(variables, vname, recursive, value, fromcl=False):
     """
@@ -220,22 +377,22 @@ def ifeq(d, offset, makefile):
         arg1, offset = parsemakesyntax(d, offset + 1, ',', PARSESTYLE_MAKEFILE)
         if offset == -1:
             raise SyntaxError("Unexpected text in conditional", d.getloc(len(d) - 1))
-        offset = skipwhitespace(d, offset + 1)
+        offset = d.skipwhitespace(offset + 1)
         arg2, offset = parsemakesyntax(d, offset, ')', PARSESTYLE_MAKEFILE)
         if offset == -1:
             raise SyntaxError("Unexpected text in conditional", d.getloc(len(d) - 1))
-        offset = skipwhitespace(d, offset + 1)
+        offset = d.skipwhitespace(offset + 1)
         if d[offset] not in ('#', None):
             raise SyntaxError("Unexpected text after conditional", d.getloc(offset))
     elif d[offset] in '\'"':
         arg1, offset = parsemakesyntax(d, offset + 1, d[offset], PARSESTYLE_MAKEFILE)
         if offset == -1:
             raise SyntaxError("Unexpected text in conditional", d.getloc(len(d) - 1))
-        offset = skipwhitespace(d, offset + 1)
+        offset = d.skipwhitespace(offset + 1)
         if d[offset] not in '\'"':
             raise SyntaxError("Unexpected text in conditional", d.getloc(offset))
         arg2, offset = parsemakesyntax(d, offset + 1, d[offset], PARSESTYLE_MAKEFILE)
-        offset = skipwhitespace(d, offset + 1)
+        offset = d.skipwhitespace(offset + 1)
         if d[offset] not in ('#', None):
             raise SyntaxError("Unexpected text after conditional: %c" % (d[offset],), d.getloc(offset))
 
@@ -300,7 +457,7 @@ def parsestream(fd, filename, makefile):
     currule = None
     condstack = []
 
-    fdlines = _iterlines(fd)
+    fdlines = iterlines(fd)
 
     for lineno, line in fdlines:
         d = Data(fdlines, filename)
@@ -321,7 +478,7 @@ def parsestream(fd, filename, makefile):
             d = Data(fdlines, filename)
             d.append(line, Location(filename, lineno, 0))
 
-            offset = skipwhitespace(d, 0)
+            offset = d.skipwhitespace(0)
 
             kword, kwoffset = getkeyword(d, offset)
             if kword == 'endif':
@@ -543,7 +700,7 @@ def parsemakesyntax(d, startat, stopon, parsestyle):
             linebegin = False
             if d[i] != '\t':
                 # look for endef/define
-                j = skipwhitespace(d, i)
+                j = d.skipwhitespace(i)
                 kword, j = getkeyword(d, j)
                 if kword == 'define':
                     print "incrementing definecount at %s" % d.getloc(j)
@@ -610,7 +767,7 @@ def parsemakesyntax(d, startat, stopon, parsestyle):
                 else:
                     stacktop.expansion.rstrip()
                     stacktop.expansion.append(' ')
-                    i = skipwhitespace(d, i)
+                    i = d.skipwhitespace(i)
                 continue
             else:
                 stacktop.expansion.append(c)
