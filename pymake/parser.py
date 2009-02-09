@@ -562,7 +562,14 @@ def parsestream(fd, filename, makefile):
                 continue
 
             if kword == 'include':
-                raise NotImplementedError('no includes yet')
+                incfile, t, offset = parsemakesyntax(d, offset, (), itermakefilechars)
+                files = data.splitwords(incfile.resolve(makefile.variables, None))
+                for f in files:
+                    # TODO: include files should be dependency-checked (added to targets in
+                    # some way)
+                    fd = open(f)
+                    parsestream(fd, f, makefile)
+                continue
 
             if kword in conditionkeywords:
                 m = conditionkeywords[kword](d, offset, makefile)

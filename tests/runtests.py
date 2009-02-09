@@ -16,6 +16,8 @@ from subprocess import Popen, PIPE, STDOUT
 from optparse import OptionParser
 import os, re, sys, shutil
 
+thisdir = os.path.dirname(os.path.abspath(__file__))
+
 o = OptionParser()
 o.add_option('-m', '--make',
              dest="make", default="gmake")
@@ -47,7 +49,7 @@ for makefile in makefiles:
     if os.path.exists(opts.tempdir): shutil.rmtree(opts.tempdir)
     os.mkdir(opts.tempdir, 0755)
 
-    cline = [opts.make, '-f', os.path.abspath(makefile)]
+    cline = [opts.make, '-f', os.path.abspath(makefile), 'TESTPATH=%s' % thisdir]
     returncode = 0
 
     mdata = open(makefile)
