@@ -12,7 +12,8 @@ TES T = val
 RECVAR = foo
 RECVAR += var baz 
 
-IMMVAR = bloo
+IMMVAR := bloo
+IMMVAR += $(RECVAR)
 
 all: BASIC = valall
 all: RECVAR += $(BASIC)
@@ -21,13 +22,12 @@ all: UNSET += more
 all: OBASIC += allmore
 
 RECVAR = blimey
-IMMVAR := blaz
 
 all:
 	test "$(TEST2)" = "val"
 	test '$(value TEST2)' = '$$(TES T)'
 	test "$(RECVAR)" = "blimey valall"
-	test "$(IMMVAR)" = "blaz valall"
+	test "$(IMMVAR)" = "bloo foo var baz  valall"
 	test "$(UNSET)" = "more"
 	test "$(OBASIC)" = "oval"
 	@echo TEST-PASS

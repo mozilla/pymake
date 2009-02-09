@@ -148,6 +148,7 @@ class Variables(object):
 
     FLAVOR_RECURSIVE = 0
     FLAVOR_SIMPLE = 1
+    FLAVOR_APPEND = 2
 
     SOURCE_OVERRIDE = 0
     SOURCE_COMMANDLINE = 1
@@ -173,6 +174,29 @@ class Variables(object):
         """
         if name in self._map:
             flavor, source, valuestr = self._map[name]
+            if flavor == self.FLAVOR_APPEND:
+                assert self.parent is not None
+                pflavor, psource, pvalue = self.parent.get(name, expand)
+                if pvalue is None:
+                    flavor = self.FLAVOR_RECURSIVE
+                    # fall through
+                else:
+                    if source > psource:
+                        # TODO: log a warning?
+                        return pflavor, psource, pvalue
+
+                    if not expand:
+                        return pflavor, psource, pvalue + ' ' + valuestr
+
+                    d = pymake.parser.Data(None, None)
+                    d.append(valuestr, pymake.parser.Location("Expansion of variable '%s'" % (name,), 1, 0))
+                    appende, t, o = pymake.parser.parsemakesyntax(d, 0, (), pymake.parser.iterdata)
+
+                    pvalue.append(' ')
+                    pvalue.concat(appende)
+
+                    return pflavor, psource, pvalue
+                    
             if not expand:
                 return flavor, source, valuestr
 
@@ -202,6 +226,28 @@ class Variables(object):
             return
 
         self._map[name] = (flavor, source, value)
+
+    def append(self, name, source, value, variables):
+        assert source in (self.SOURCE_OVERRIDE, self.SOURCE_MAKEFILE, self.SOURCE_AUTOMATIC)
+        assert isinstance(value, str)
+        
+        if name in self._map:
+            prevflavor, prevsource, prevvalue = self._map[name]
+            if source > prevsource:
+                # TODO: log a warning?
+                return
+
+            if prevflavor == self.FLAVOR_SIMPLE:
+                d = pymake.parser.Data(None, None)
+                d.append(value, pymake.parser.Location("Expansion of variable '%s'" % (name,), 1, 0))
+                e, t, o = pymake.parser.parsemakesyntax(d, 0, (), pymake.parser.iterdata)
+                val = e.resolve(variables, name)
+            else:
+                val = value
+
+            self._map[name] = prevflavor, prevsource, prevvalue + ' ' + val
+        else:
+            self._map[name] = self.FLAVOR_APPEND, source, value
 
     def merge(self, other):
         assert isinstance(other, Variables)

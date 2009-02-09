@@ -351,8 +351,11 @@ def setvariable(resolvevariables, setvariables, vname, token, d, offset, iterfun
         source = data.Variables.SOURCE_MAKEFILE
 
     if token == '+=':
-        raise NotImplementedError("+= not yet")
-    elif token == '=':
+        val = ''.join((c for c, o, l in iterfunc(d, offset)))
+        setvariables.append(vname, source, val, resolvevariables)
+        return
+
+    if token == '=':
         flavor = data.Variables.FLAVOR_RECURSIVE
         val = ''.join((c for c, o, l in iterfunc(d, offset)))
     else:

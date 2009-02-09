@@ -227,6 +227,18 @@ class WordlistFunction(Function):
 
         return ' '.join(words[nfrom - 1:nto])
 
+class ValueFunction(Function):
+    name = 'value'
+
+    def setup(self):
+        self.expectargs(1)
+
+    def resolve(self, variables, setting):
+        varname = self._arguments[0].resolve(variables, setting)
+
+        flavor, source, value = variables.get(varname, expand=False)
+        return value
+
 class FlavorFunction(Function):
     name = 'flavor'
 
@@ -305,7 +317,7 @@ functionmap = {
     'and': None,
     'foreach': None,
     'call': None,
-    'value': None,
+    'value': ValueFunction,
     'eval': None,
     'origin': None,
     'flavor': FlavorFunction,
