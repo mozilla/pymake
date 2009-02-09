@@ -5,11 +5,11 @@ import logging
 from cStringIO import StringIO
 
 def multitest(cls):
-    for i in xrange(0, len(cls.testdata)):
-        def m(self, i=i):
-            return self.runSingle(*self.testdata[i])
+    for name in cls.testdata.iterkeys():
+        def m(self, name=name):
+            return self.runSingle(*self.testdata[name])
 
-        setattr(cls, 'test_%i' % i, m)
+        setattr(cls, 'test_%s' % name, m)
     return cls
 
 class TestBase(unittest.TestCase):
@@ -36,54 +36,78 @@ class DataTest(TestBase):
                 self.assertEqual(loc.line, lineno, "data line")
                 self.assertEqual(loc.column, col, "data %r col, got %i expected %i" % (d.data, loc.column, col))
 
+class TokenTest(TestBase):
+    testdata = {
+        'nomatch': ('string data', 0, ('+=', ':=', '='), False, None, 0),
+        'match': ('string = val', 0, ('+=', ':=', '='), False, '=', 8),
+        'firstmatch': ('string += val', 0, ('+=', ':=', '='), False, '+=', 9),
+        'startpos': ('string += val = var', 10, ('+=', ':=', '='), False, '=', 14),
+        'wsmatch': ('  ifdef FOO', 2, ('ifdef', 'else'), True, 'ifdef', 8),
+        'wsnomatch': ('  unexpected FOO', 2, ('ifdef', 'else'), True, None, 2),
+        'wsnows': ('  ifdefFOO', 2, ('ifdef', 'else'), True, None, 2),
+        'paren': ('$(FOO)', 5, '=)', False, ')', 6),
+        }
+
+    def runSingle(self, s, start, tlist, needws, etoken, eoffset):
+        d = Data(None, None)
+        d.append(s, None)
+        atoken, aoffset = d.findtoken(start, tlist)
+        self.assertEqual(atoken, etoken)
+        self.assertEqual(aoffset, eoffset)
+
 class IterTest(TestBase):
-    testdata = (
-        (
+    testdata = {
+        'plaindata': (
             pymake.parser.iterdata,
             "plaindata # test\n",
             "plaindata # test\n"
-        ),
-        (
+            ),
+        'makecomment': (
             pymake.parser.itermakefilechars,
             "VAR = val # comment",
             "VAR = val "
-        ),
-        (
+            ),
+        'makeescapedcomment': (
             pymake.parser.itermakefilechars,
             "VAR = val \# escaped hash\n",
             "VAR = val # escaped hash"
-        ),
-        (
+            ),
+        'makeescapedslash': (
+            pymake.parser.itermakefilechars,
+            "VAR = val\\\\\n",
+            "VAR = val\\\\",
+            ),
+        'makecontinuation': (
             pymake.parser.itermakefilechars,
             "VAR = VAL  \\\n  continuation # comment \\\n  continuation",
             "VAR = VAL continuation "
-        ),
-        (
+            ),
+        'makeawful': (
             pymake.parser.itermakefilechars,
             "VAR = VAL  \\\\# comment\n",
             "VAR = VAL  \\"
-        ),
-        (
+            ),
+        'command': (
             pymake.parser.itercommandchars,
             "echo boo # comment\n",
             "echo boo # comment",
-        ),
-        (
+            ),
+        'commandcomment': (
             pymake.parser.itercommandchars,
             "echo boo \# comment\n",
             "echo boo \# comment",
-        ),
-        (
+            ),
+        'commandcontinue': (
             pymake.parser.itercommandchars,
             "echo boo # \\\n\t  command 2\n",
             "echo boo # \\\n  command 2"
-        ),
-        (
+            ),
+        'define': (
             pymake.parser.iterdefinechars,
             "endef",
             ""
-        ),
-        (
+            ),
+        'definenesting': (
             pymake.parser.iterdefinechars,
             """define BAR # comment
 random text
@@ -92,15 +116,15 @@ endef # comment is ok\n""",
             """define BAR # comment
 random text
 endef not what you think!"""
-        ),
-        (
+            ),
+        'defineescaped': (
             pymake.parser.iterdefinechars,
-            """value \\
+            """value   \\
 endef
 endef\n""",
-            "value \\\nendef"
+            "value endef"
         ),
-    )
+    }
 
     def runSingle(self, ifunc, idata, expected):
         fd = StringIO(idata)
@@ -117,44 +141,44 @@ multitest(IterTest)
 
 class MakeSyntaxTest(TestBase):
     # (string, startat, stopat, stopoffset, expansion
-    testdata = (
-        ('hello world', 0, '', -1, ['hello world']),
-        ('hello $W', 0, '', -1,
-         ['hello ',
-          {'type': 'VariableRef',
-           '.vname': ['W']}
-          ]),
-        ('hello: world', 0, ':=', 5, ['hello']),
-        ('h $(flavor FOO)', 0, '', -1,
-         ['h ',
-          {'type': 'FlavorFunction',
-           '[0]': ['FOO']}
-          ]),
-        ('hello$$world', 0, '', -1, ['hello$world']),
-        ('echo $(VAR)', 0, '', -1,
-         ['echo ',
-          {'type': 'VariableRef',
-           '.vname': ['VAR']}
-          ]),
-        ('echo $($(VARNAME):.c=.o)', 0, '', -1,
-         ['echo ',
-          {'type': 'SubstitutionRef',
-           '.vname': [{'type': 'VariableRef',
-                       '.vname': ['VARNAME']}
-                      ],
-           '.substfrom': ['.c'],
-           '.substto': ['.o']}
-          ]),
-        ('  $(VAR:VAL) = $(VAL)', 0, ':=', 13,
-         ['  ',
-          {'type': 'VariableRef',
-           '.vname': ['VAR:VAL']},
-          ' ']),
-        ('  $(VAR:VAL) = $(VAL)', 15, '', -1,
-         [{'type': 'VariableRef',
-           '.vname': ['VAL']},
-         ]),
-    )
+    testdata = {
+        'text': ('hello world', 0, (), None, ['hello world']),
+        'singlechar': ('hello $W', 0, (), None,
+                       ['hello ',
+                        {'type': 'VariableRef',
+                         '.vname': ['W']}
+                        ]),
+        'stopat': ('hello: world', 0, (':', '='), 6, ['hello']),
+        'funccall': ('h $(flavor FOO)', 0, (), None,
+                     ['h ',
+                      {'type': 'FlavorFunction',
+                       '[0]': ['FOO']}
+                      ]),
+        'escapedollar': ('hello$$world', 0, (), None, ['hello$world']),
+        'varref': ('echo $(VAR)', 0, (), None,
+                   ['echo ',
+                    {'type': 'VariableRef',
+                     '.vname': ['VAR']}
+                    ]),
+        'dynamicvarname': ('echo $($(VARNAME):.c=.o)', 0, (':'), None,
+                           ['echo ',
+                            {'type': 'SubstitutionRef',
+                             '.vname': [{'type': 'VariableRef',
+                                         '.vname': ['VARNAME']}
+                                        ],
+                             '.substfrom': ['.c'],
+                             '.substto': ['.o']}
+                            ]),
+        'substref': ('  $(VAR:VAL) := $(VAL)', 0, (':=', '+=', '=', ':'), 15,
+                     ['  ',
+                      {'type': 'VariableRef',
+                       '.vname': ['VAR:VAL']},
+                      ' ']),
+        'vadsubstref': ('  $(VAR:VAL) = $(VAL)', 15, (), None,
+                        [{'type': 'VariableRef',
+                          '.vname': ['VAL']},
+                         ]),
+        }
 
     def compareRecursive(self, actual, expected, path):
         self.assertEqual(len(actual), len(expected),
@@ -183,14 +207,15 @@ class MakeSyntaxTest(TestBase):
                     else:
                         raise Exception("Unexpected property at %s: %s" % (ipath, k))
 
-    def runTest(self):
-        for s, startat, stopat, stopoffset, expansion in self.testdata:
-            d = pymake.parser.Data(None, None)
-            d.append(s, pymake.parser.Location('testdata', 1, 0))
+    def runSingle(self, s, startat, stopat, stopoffset, expansion):
+        d = pymake.parser.Data(None, None)
+        d.append(s, pymake.parser.Location('testdata', 1, 0))
 
-            a, stoppedat = pymake.parser.parsemakesyntax(d, startat, stopat, pymake.parser.PARSESTYLE_MAKEFILE)
-            self.compareRecursive(a, expansion, [])
-            self.assertEqual(stoppedat, stopoffset)
+        a, t, offset = pymake.parser.parsemakesyntax(d, startat, stopat, pymake.parser.itermakefilechars)
+        self.compareRecursive(a, expansion, [])
+        self.assertEqual(offset, stopoffset)
+
+multitest(MakeSyntaxTest)
 
 class VariableTest(TestBase):
     testdata = """

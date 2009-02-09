@@ -162,30 +162,38 @@ class Variables(object):
         self._map = {}
         self.parent = parent
 
-    def get(self, name):
+    def get(self, name, expand=True):
         """
         Get the value of a named variable. Returns a tuple (flavor, source, value)
 
         If the variable is not present, returns (None, None, None)
+
+        @param expand If true, the value will be returned as an expansion. If false,
+        it will be returned as an unexpanded string.
         """
-        v = self._map.get(name, None)
-        if v is not None:
-            return v
+        if name in self._map:
+            flavor, source, valuestr = self._map[name]
+            if not expand:
+                return flavor, source, valuestr
+
+            if flavor == self.FLAVOR_RECURSIVE:
+                d = pymake.parser.Data(None, None)
+                d.append(valuestr, pymake.parser.Location("Expansion of variable '%s'" % (name,), 1, 0))
+                val, t, o = pymake.parser.parsemakesyntax(d, 0, (), pymake.parser.iterdata)
+            else:
+                val = Expansion.fromstring(valuestr)
+
+            return flavor, source, val
 
         if self.parent is not None:
-            return self.parent.get(name)
+            return self.parent.get(name, expand)
 
         return (None, None, None)
 
     def set(self, name, flavor, source, value):
-        if not flavor in (self.FLAVOR_RECURSIVE, self.FLAVOR_SIMPLE):
-            raise DataError("Unexpected variable flavor: %s" % (flavor,))
-
-        if not source in (self.SOURCE_OVERRIDE, self.SOURCE_MAKEFILE, self.SOURCE_AUTOMATIC):
-            raise DataError("Unexpected variable source: %s" % (source,))
-
-        if not isinstance(value, Expansion):
-            raise DataError("Unexpected variable value, wasn't an expansion.")
+        assert flavor in (self.FLAVOR_RECURSIVE, self.FLAVOR_SIMPLE)
+        assert source in (self.SOURCE_OVERRIDE, self.SOURCE_MAKEFILE, self.SOURCE_AUTOMATIC)
+        assert isinstance(value, str)
 
         prevflavor, prevsource, prevvalue = self.get(name)
         if prevsource is not None and source > prevsource:
@@ -556,16 +564,16 @@ def setautomaticvariables(v, makefile, target, prerequisites):
     vprereqs = [makefile.gettarget(p).vpathtarget
                 for p in prerequisites]
 
-    v.set('@', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, Expansion.fromstring(target.vpathtarget))
+    v.set('@', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, target.vpathtarget)
 
     if len(vprereqs):
-        v.set('<', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, Expansion.fromstring(vprereqs[0]))
+        v.set('<', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, vprereqs[0])
 
     # TODO '?'
     v.set('^', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
-          Expansion.fromstring(' '.join(withoutdups(vprereqs))))
+          ' '.join(withoutdups(vprereqs)))
     v.set('+', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
-          Expansion.fromstring(' '.join(vprereqs)))
+          ' '.join(vprereqs))
     # TODO '|'
     # TODO all the D and F variants
 
@@ -684,8 +692,7 @@ class PatternRule(object):
         v = Variables(parent=target.variables)
         setautomaticvariables(v, makefile, target,
                               self.prerequisitesfor(stem=stem, dir=dir))
-        v.set('*', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
-              Expansion.fromstring(stem))
+        v.set('*', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, stem)
 
         for c in self.commands:
             cstring = c.resolve(v, None)
