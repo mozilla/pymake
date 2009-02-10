@@ -1,6 +1,11 @@
 all:
 	test "$(subst e,EE,hello)" = "hEEllo"
 	test "$(strip $(NULL)  test data  )" = "test data"
+	test "$(findstring hell,hello)" = "hell"
+	test "$(findstring heaven,hello)" = ""
+	test "$(filter foo/%.c b%,foo/a.c b.c foo/a.o)" = "foo/a.c b.c"
+	test "$(filter-out foo/%.c b%,foo/a.c b.c foo/a.o)" = "foo/a.o"
+	test "$(sort .go a b aa A c cc)" = ".go A a aa b c cc"
 	test "$(word 1, hello )" = "hello"
 	test "$(word 2, hello )" = ""
 	test "$(wordlist 1, 2, foo bar baz )" = "foo bar"

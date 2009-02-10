@@ -373,6 +373,9 @@ class Pattern(object):
 
         return Pattern(replacement).resolve('', stem)
 
+    def __repr__(self):
+        return "<Pattern with data %r>" % (self.data,)
+
 class Target(object):
     """
     An actual (non-pattern) target.

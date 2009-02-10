@@ -3,7 +3,7 @@ Makefile functions.
 """
 
 from pymake import data
-import subprocess, os
+import subprocess, os, glob
 
 log = data.log
 
@@ -142,15 +142,13 @@ class FilterFunction(Function):
 
     def resolve(self, variables, setting):
         ps = self._arguments[0].resolve(variables, setting)
-        d = self._arguments[1].resolve(variables.setting)
-        plist = [data.Pattern(p) for p in ps]
+        d = self._arguments[1].resolve(variables, setting)
+        plist = [data.Pattern(p) for p in data.splitwords(ps)]
         r = []
         for w in data.splitwords(d):
-            for p in plist:
-                if p.match(w) is not None:
+            if any((p.match(w) for p in plist)):
                     r.append(w)
-                    break
-
+                
         return ' '.join(r)
 
 class FilteroutFunction(Function):
@@ -160,12 +158,11 @@ class FilteroutFunction(Function):
     def resolve(self, variables, setting):
         ps = self._arguments[0].resolve(variables, setting)
         d = self._arguments[1].resolve(variables, setting)
-        plist = [data.Pattern(p) for p in ps]
+        plist = [data.Pattern(p) for p in data.splitwords(ps)]
         r = []
         for w in data.splitwords(d):
-            for p in plist:
-                if p.match(w) is not None:
-                    break
+            found = False
+            if not any((p.match(w) for p in plist)):
                 r.append(w)
 
         return ' '.join(r)
@@ -176,9 +173,9 @@ class SortFunction(Function):
 
     def resolve(self, variables, setting):
         d = self._arguments[0].resolve(variables, setting)
-        w = data.splitwords(w)
+        w = data.splitwords(d)
         w.sort()
-        return data.withoutdups(w)
+        return ' '.join((w for w in data.withoutdups(w)))
 
 class WordFunction(Function):
     name = 'word'
@@ -334,6 +331,15 @@ class JoinFunction(Function):
 
         return ' '.join(self.iterjoin(list1, list2))
 
+class WildcardFunction(Function):
+    name = 'wildcard'
+    expectedargs = 1
+
+    def resolve(self, variables, setting):
+        # TODO: will need work when we support -C without actually changing the OS cwd
+        pattern = self._arguments[0].resolve(variables, setting)
+        return ' '.join(glob.glob(pattern))
+
 class RealpathFunction(Function):
     name = 'realpath'
     expectedargs = 1
@@ -444,7 +450,7 @@ functionmap = {
     'addsuffix': AddSuffixFunction,
     'addprefix': AddPrefixFunction,
     'join': JoinFunction,
-    'wildcard': None,
+    'wildcard': WildcardFunction,
     'realpath': RealpathFunction,
     'abspath': AbspathFunction,
     'if': None,
