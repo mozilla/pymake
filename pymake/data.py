@@ -780,13 +780,20 @@ class PatternRule(object):
             subprocess.check_call(cstring, shell=True)
 
 class Makefile(object):
-    def __init__(self, restarts=0):
+    def __init__(self, workdir=None, restarts=0):
         self.defaulttarget = None
         self.variables = Variables()
         self._targets = {}
         self._patternvariables = [] # of (pattern, variables)
         self.implicitrules = []
         self.parsingfinished = False
+
+        if workdir is None:
+            workdir = os.getcwd()
+        workdir = os.path.realpath(workdir)
+        self.workdir = workdir
+        self.variables.set('CURDIR', Variables.FLAVOR_SIMPLE,
+                           Variables.SOURCE_AUTOMATIC, workdir)
 
         # the list of included makefiles, whether or not they existed
         self.included = []

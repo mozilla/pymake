@@ -3,7 +3,7 @@ Makefile functions.
 """
 
 from pymake import data
-import subprocess
+import subprocess, os
 
 log = data.log
 
@@ -317,6 +317,41 @@ class AddPrefixFunction(Function):
 
         return ' '.join((prefix + w for w in data.splitwords(self._arguments[1].resolve(variables, setting))))
 
+class JoinFunction(Function):
+    name = 'join'
+    expectedargs = 2
+
+    @staticmethod
+    def iterjoin(l1, l2):
+        for i in xrange(0, max(len(l1), len(l2))):
+            i1 = i < len(l1) and l1[i] or ''
+            i2 = i < len(l2) and l2[i] or ''
+            yield i1 + i2
+
+    def resolve(self, variables, setting):
+        list1 = data.splitwords(self._arguments[0].resolve(variables, setting))
+        list2 = data.splitwords(self._arguments[1].resolve(variables, setting))
+
+        return ' '.join(self.iterjoin(list1, list2))
+
+class RealpathFunction(Function):
+    name = 'realpath'
+    expectedargs = 1
+
+    def resolve(self, variables, setting):
+        # TODO: will need work when we support -C without actually changing the OS cwd
+        return ' '.join((os.path.realpath(f)
+                         for f in data.splitwords(self._arguments[0].resolve(variables, setting))))
+
+class AbspathFunction(Function):
+    name = 'abspath'
+    expectedargs = 1
+
+    def resolve(self, variables, setting):
+        # TODO: will need work when we support -C without actually changing the OS cwd
+        return ' '.join((os.path.abspath(f)
+                         for f in data.splitwords(self._arguments[0].resolve(variables, setting))))
+
 class ValueFunction(Function):
     name = 'value'
     expectedargs = 1
@@ -408,10 +443,10 @@ functionmap = {
     'basename': BasenameFunction,
     'addsuffix': AddSuffixFunction,
     'addprefix': AddPrefixFunction,
-    'join': None,
+    'join': JoinFunction,
     'wildcard': None,
-    'realpath': None,
-    'abspath': None,
+    'realpath': RealpathFunction,
+    'abspath': AbspathFunction,
     'if': None,
     'or': None,
     'and': None,

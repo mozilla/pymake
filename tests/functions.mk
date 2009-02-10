@@ -14,4 +14,7 @@ all:
 	test "$(basename src/foo.c dir/my.dir/foo foo.c .c)" = "src/foo dir/my.dir/foo foo "
 	test "$(addprefix src/,foo bar.c dir/foo)" = "src/foo src/bar.c src/dir/foo"
 	test "$(addsuffix .c,foo dir/bar)" = "foo.c dir/bar.c"
+	test "$(join a b c, 1 2 3)" = "a1 b2 c3"
+	test "$(join a b, 1 2 3)" = "a1 b2 3"
+	test "$(join a b c, 1 2)" = "a1 b2 c"
 	@echo TEST-PASS
