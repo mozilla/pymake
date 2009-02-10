@@ -290,6 +290,28 @@ class ErrorFunction(Function):
         v = self._arguments[0].resolve(variables, setting)
         raise data.DataError(v, self.loc)
 
+class WarningFunction(Function):
+    name = 'warning'
+
+    def setup(self):
+        self.expectargs(1)
+
+    def resolve(self, variables, setting):
+        v = self._arguments[0].resolve(variables, setting)
+        log.warning(v)
+        return ''
+
+class InfoFunction(Function):
+    name = 'info'
+
+    def setup(self):
+        self.expectargs(1)
+
+    def resolve(self, variables, setting):
+        v = self._arguments[0].resolve(variables, setting)
+        log.info(v)
+        return ''
+
 functionmap = {
     'subst': SubstFunction,
     'patsubst': PatSubstFunction,
@@ -324,7 +346,6 @@ functionmap = {
     'flavor': FlavorFunction,
     'shell': ShellFunction,
     'error': ErrorFunction,
-    'warning': None,
-    'info': None,
+    'warning': WarningFunction,
+    'info': InfoFunction,
 }
-
