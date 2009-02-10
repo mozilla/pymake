@@ -122,7 +122,7 @@ class Data(object):
         """
         Get the location of an offset within data.
         """
-        if offset >= len(self.data):
+        if offset is None or offset >= len(self.data):
             offset = len(self.data) - 1
 
         begin, loc = findlast(lambda (o, l): o <= offset, self._locs)
