@@ -707,6 +707,7 @@ class ParseStackFrame(object):
             setattr(self, key, value)
 
 functiontokens = [k for k in functions.functionmap.iterkeys()]
+functiontokens.sort(key=len, reverse=True)
 
 def parsemakesyntax(d, startat, stopon, iterfunc):
     """

@@ -26,6 +26,9 @@ class Function(object):
     def __getitem__(self, key):
         return self._arguments[key]
 
+    def setup(self):
+        self.expectargs(self.expectedargs)
+
     def append(self, arg):
         assert isinstance(arg, data.Expansion)
         self._arguments.append(arg)
@@ -94,9 +97,7 @@ class SubstitutionRef(Function):
 
 class SubstFunction(Function):
     name = 'subst'
-
-    def setup(self):
-        self.expectargs(3)
+    expectedargs = 3
 
     def resolve(self, variables, setting):
         s = self._arguments[0].resolve(variables, setting)
@@ -106,9 +107,7 @@ class SubstFunction(Function):
 
 class PatSubstFunction(Function):
     name = 'patsubst'
-
-    def setup(self):
-        self.expectargs(3)
+    expectedargs = 3
 
     def resolve(self, variables, setting):
         s = self._arguments[0].resolve(variables, setting)
@@ -121,18 +120,14 @@ class PatSubstFunction(Function):
 
 class StripFunction(Function):
     name = 'strip'
-
-    def setup(self):
-        self.expectargs(1)
+    expectedargs = 1
 
     def resolve(self, variables, setting):
         return ' '.join(data.splitwords(self._arguments[0].resolve(variables, setting)))
 
 class FindstringFunction(Function):
     name = 'findstring'
-
-    def setup(self):
-        self.expectargs(2)
+    expectedargs = 2
 
     def resolve(self, variables, setting):
         s = self._arguments[0].resolve(variables, setting)
@@ -143,9 +138,7 @@ class FindstringFunction(Function):
 
 class FilterFunction(Function):
     name = 'filter'
-
-    def setup(self):
-        self.expectargs(2)
+    expectedargs = 2
 
     def resolve(self, variables, setting):
         ps = self._arguments[0].resolve(variables, setting)
@@ -162,9 +155,7 @@ class FilterFunction(Function):
 
 class FilteroutFunction(Function):
     name = 'filter-out'
-
-    def setup(self):
-        self.expectargs(2)
+    expectedargs = 2
 
     def resolve(self, variables, setting):
         ps = self._arguments[0].resolve(variables, setting)
@@ -181,9 +172,7 @@ class FilteroutFunction(Function):
 
 class SortFunction(Function):
     name = 'sort'
-
-    def setup(self):
-        self.expectargs(1)
+    expectedargs = 1
 
     def resolve(self, variables, setting):
         d = self._arguments[0].resolve(variables, setting)
@@ -193,9 +182,7 @@ class SortFunction(Function):
 
 class WordFunction(Function):
     name = 'word'
-
-    def setup(self):
-        self.expectargs(2)
+    expectedargs = 2
 
     def resolve(self, variables, setting):
         n = self._arguments[0].resolve(variables, setting)
@@ -208,9 +195,7 @@ class WordFunction(Function):
 
 class WordlistFunction(Function):
     name = 'wordlist'
-
-    def setup(self):
-        self.expectargs(3)
+    expectedargs = 3
 
     def resolve(self, variables, setting):
         nfrom = self._arguments[0].resolve(variables, setting)
@@ -228,11 +213,63 @@ class WordlistFunction(Function):
 
         return ' '.join(words[nfrom - 1:nto])
 
+class WordsFunction(Function):
+    name = 'words'
+    expectedargs = 1
+
+    def resolve(self, variables, setting):
+        return str(len(data.splitwords(self._arguments[0].resolve(variables, setting))))
+
+class FirstWordFunction(Function):
+    name = 'firstword'
+    expectedargs = 1
+
+    def resolve(self, variables, setting):
+        wl = data.splitwords(self._arguments[0].resolve(variables, setting))
+        if len(wl) == 0:
+            return ''
+        return wl[0]
+
+class LastWordFunction(Function):
+    name = 'lastword'
+    expectedargs = 1
+
+    def resolve(self, variables, setting):
+        wl = data.splitwords(self._arguments[0].resolve(variables, setting))
+        if len(wl) == 0:
+            return ''
+        return wl[0]
+
+def pathsplit(path):
+    """
+    Splits a path into dirpart, filepart on the last slash. If there is no slash, dirpart
+    is ./
+    """
+    dir, slash, file = path.rpartition('/')
+    if dir == '':
+        return './', file
+
+    return dir + slash, file
+
+class DirFunction(Function):
+    name = 'dir'
+    expectedargs = 1
+
+    def resolve(self, variables, setting):
+        return ' '.join((pathsplit(path)[0]
+                         for path in data.splitwords(self._arguments[0].resolve(variables, setting))))
+
+class NotDirFunction(Function):
+    name = 'notdir'
+    expectedargs = 1
+
+    def resolve(self, variables, setting):
+        return ' '.join((pathsplit(path)[1]
+                         for path in data.splitwords(self._arguments[0].resolve(variables, setting))))
+
 class ValueFunction(Function):
     name = 'value'
-
-    def setup(self):
-        self.expectargs(1)
+    expectedargs = 1
 
     def resolve(self, variables, setting):
         varname = self._arguments[0].resolve(variables, setting)
@@ -242,9 +279,7 @@ class ValueFunction(Function):
 
 class FlavorFunction(Function):
     name = 'flavor'
-
-    def setup(self):
-        self.expectargs(1)
+    expectedargs = 1
 
     def resolve(self, variables, setting):
         varname = self._arguments[0].resolve(variables, setting)
@@ -263,9 +298,7 @@ class FlavorFunction(Function):
 
 class ShellFunction(Function):
     name = 'shell'
-
-    def setup(self):
-        self.expectargs(1)
+    expectedargs = 1
 
     def resolve(self, variables, setting):
         cline = self._arguments[0].resolve(variables, setting)
@@ -282,9 +315,7 @@ class ShellFunction(Function):
 
 class ErrorFunction(Function):
     name = 'error'
-
-    def setup(self):
-        self.expectargs(1)
+    expectedargs = 1
 
     def resolve(self, variables, setting):
         v = self._arguments[0].resolve(variables, setting)
@@ -292,9 +323,7 @@ class ErrorFunction(Function):
 
 class WarningFunction(Function):
     name = 'warning'
-
-    def setup(self):
-        self.expectargs(1)
+    expectedargs = 1
 
     def resolve(self, variables, setting):
         v = self._arguments[0].resolve(variables, setting)
@@ -303,9 +332,7 @@ class WarningFunction(Function):
 
 class InfoFunction(Function):
     name = 'info'
-
-    def setup(self):
-        self.expectargs(1)
+    expectedargs = 1
 
     def resolve(self, variables, setting):
         v = self._arguments[0].resolve(variables, setting)
@@ -322,11 +349,11 @@ functionmap = {
     'sort': SortFunction,
     'word': WordFunction,
     'wordlist': WordlistFunction,
-    'words': None,
-    'firstword': None,
-    'lastword': None,
-    'dir': None,
-    'notdir': None,
+    'words': WordsFunction,
+    'firstword': FirstWordFunction,
+    'lastword': LastWordFunction,
+    'dir': DirFunction,
+    'notdir': NotDirFunction,
     'suffix': None,
     'basename': None,
     'addsuffix': None,
