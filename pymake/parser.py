@@ -479,7 +479,7 @@ class Condition(object):
             self.everactive = True
 
 directives = [k for k in conditionkeywords.iterkeys()] + \
-    ['else', 'endif', 'define', 'endef', 'override', 'include', 'vpath']
+    ['else', 'endif', 'define', 'endef', 'override', 'include', '-include', 'vpath']
 
 varsettokens = (':=', '+=', '=')
 
@@ -561,14 +561,11 @@ def parsestream(fd, filename, makefile):
 
                 continue
 
-            if kword == 'include':
+            if kword in ('include', '-include'):
                 incfile, t, offset = parsemakesyntax(d, offset, (), itermakefilechars)
                 files = data.splitwords(incfile.resolve(makefile.variables, None))
                 for f in files:
-                    # TODO: include files should be dependency-checked (added to targets in
-                    # some way)
-                    fd = open(f)
-                    parsestream(fd, f, makefile)
+                    makefile.include(f, kword == 'include')
                 continue
 
             if kword in conditionkeywords:

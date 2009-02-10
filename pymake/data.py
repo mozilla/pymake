@@ -175,8 +175,11 @@ class Variables(object):
         if name in self._map:
             flavor, source, valuestr = self._map[name]
             if flavor == self.FLAVOR_APPEND:
-                assert self.parent is not None
-                pflavor, psource, pvalue = self.parent.get(name, expand)
+                if self.parent:
+                    pflavor, psource, pvalue = self.parent.get(name, expand)
+                else:
+                    pflavor, psource, pvalue = None, None, None
+
                 if pvalue is None:
                     flavor = self.FLAVOR_RECURSIVE
                     # fall through
@@ -476,7 +479,11 @@ class Target(object):
 
         log.info("Couldn't find implicit rule to remake '%s'" % (self.target,))
 
-    def resolvedeps(self, makefile, targetstack, rulestack):
+    def ruleswithcommands(self):
+        "The number of rules with commands"
+        return reduce(lambda i, rule: i + (len(rule.commands) > 0), self.rules, 0)
+
+    def resolvedeps(self, makefile, targetstack, rulestack, required=True):
         """
         Resolve the actual path of this target, using vpath if necessary.
 
@@ -503,7 +510,7 @@ class Target(object):
         self.resolvevpath(makefile)
 
         # Sanity-check our rules. If we're single-colon, only one rule should have commands
-        ruleswithcommands = reduce(lambda i, rule: i + len(rule.commands) > 0, self.rules, 0)
+        ruleswithcommands = self.ruleswithcommands()
         if len(self.rules) and not self.isdoublecolon():
             if ruleswithcommands > 1:
                 # In GNU make this is a warning, not an error. I'm going to be stricter.
@@ -520,8 +527,9 @@ class Target(object):
         # Otherwise, we don't know how to make it.
         if not len(self.rules) and self.mtime is None and not any((len(rule.prerequisitesfor(self.target)) > 0
                                                                    for rule in self.rules)):
-            raise ResolutionError("No rule to make %s needed to make %s" % (self.target,
-                                      ' -> '.join(targetstack[:-1])))
+            if required:
+                raise ResolutionError("No rule to make %s needed by %s" % (self.target,
+                    ' -> '.join(targetstack[:-1])))
 
         for r in self.rules:
             newrulestack = rulestack + [r]
@@ -564,8 +572,14 @@ class Target(object):
         If we are out of date, make ourself.
 
         For now, making is synchronous/serialized. -j magic will come later.
+
+        @returns True if anything was done to remake this target
         """
         assert self.vpathtarget is not None, "Target was never resolved!"
+
+        log.info("Starting potential remake of '%s'" % (self.target,))
+
+        didanything = False
 
         if len(self.rules) == 0:
             assert self.mtime is not None
@@ -577,13 +591,14 @@ class Target(object):
                     remake = True
                 for p in r.prerequisitesfor(self.target):
                     dep = makefile.gettarget(p)
-                    dep.make(makefile)
+                    didanything = dep.make(makefile) or didanything
                     if not remake and mtimeislater(dep.mtime, self.mtime):
                         log.info("Remaking %s using rule at %s because %s is newer." % (self.target, r.loc, p))
                         remake = True
                 if remake:
                     self.remake()
                     rule.execute(self, makefile)
+                    didanything = True
         else:
             commandrule = None
             remake = False
@@ -597,14 +612,19 @@ class Target(object):
                     commandrule = r
                 for p in r.prerequisitesfor(self.target):
                     dep = makefile.gettarget(p)
-                    dep.make(makefile)
+                    didanything = dep.make(makefile) or didanything
                     if not remake and mtimeislater(dep.mtime, self.mtime):
                         log.info("Remaking %s because %s is newer" % (self.target, p))
                         remake = True
 
-            if commandrule is not None and remake:
+            if remake:
                 self.remake()
-                commandrule.execute(self, makefile)
+                if commandrule is not None:
+                    commandrule.execute(self, makefile)
+                didanything = True
+
+        log.info("Did something to rebuild '%s'? %s" % (self.target, didanything))
+        return didanything
 
 def setautomaticvariables(v, makefile, target, prerequisites):
     vprereqs = [makefile.gettarget(p).vpathtarget
@@ -755,6 +775,9 @@ class Makefile(object):
         self.implicitrules = []
         self.parsingfinished = False
 
+        # the list of included makefiles, whether or not they existed
+        self.included = []
+
     def foundtarget(self, t):
         """
         Inform the makefile of a target which is a candidate for being the default target,
@@ -819,3 +842,33 @@ class Makefile(object):
             for r in t.rules:
                 for p in r.prerequisitesfor(t.target):
                     self.gettarget(p).explicit = True
+
+    def include(self, path, required=True):
+        """
+        Include the makefile at `path`.
+        """
+        self.included.append(path)
+        if os.path.exists(path):
+            fd = open(path)
+            self.variables.append('MAKEFILE_LIST', Variables.SOURCE_AUTOMATIC, path, None)
+            pymake.parser.parsestream(fd, path, self)
+            self.gettarget(path).explicit = True
+        elif required:
+            raise DataError("Attempting to include file which doesn't exist.")
+
+    def remakemakefiles(self):
+        reparse = False
+
+        tlist = [self.gettarget(f) for f in self.included]
+        for t in tlist:
+            t.explicit = True
+            t.resolvedeps(self, [], [], required=False)
+        for t in tlist:
+            if len(t.rules) > 0:
+                oldmtime = t.mtime
+                t.make(self)
+                if t.mtime != oldmtime:
+                    log.info("included makefile '%s' was remade" % t.target)
+                    reparse = True
+
+        return reparse

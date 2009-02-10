@@ -11,6 +11,8 @@ from optparse import OptionParser
 from pymake.data import Makefile, DataError
 from pymake.parser import parsestream, parsecommandlineargs, SyntaxError
 
+log = logging.getLogger('pymake.execution')
+
 op = OptionParser()
 op.add_option('-f', '--file', '--makefile',
               action='append',
@@ -25,7 +27,6 @@ options, arguments = op.parse_args()
 if options.verbose:
     logging.basicConfig(level=logging.DEBUG)
 
-m = Makefile()
 if len(options.makefiles) == 0:
     if os.path.exists('Makefile'):
         options.makefiles.append('Makefile')
@@ -34,12 +35,19 @@ if len(options.makefiles) == 0:
         sys.exit(2)
 
 try:
-    targets = parsecommandlineargs(m, arguments)
+    while True:
+        m = Makefile()
+        targets = parsecommandlineargs(m, arguments)
 
-    for f in options.makefiles:
-        parsestream(open(f), f, m)
+        for f in options.makefiles:
+            m.include(f)
 
-    m.finishparsing()
+        m.finishparsing()
+        if m.remakemakefiles():
+            log.info("restarting makefile parsing")
+            continue
+
+        break
 
     if len(targets) == 0:
         if m.defaulttarget is None:
