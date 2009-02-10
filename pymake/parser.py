@@ -346,7 +346,7 @@ def setvariable(resolvevariables, setvariables, vname, token, d, offset, iterfun
         raise SyntaxError("Empty variable name", loc=d.getloc(offset))
 
     if fromcl:
-        source = data.Variables.SOURCE_OVERRIDE
+        source = data.Variables.SOURCE_COMMANDLINE
     else:
         source = data.Variables.SOURCE_MAKEFILE
 

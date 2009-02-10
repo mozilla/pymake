@@ -449,6 +449,8 @@ class CallFunction(Function):
             v.set(str(i), data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_OVERRIDE, param)
 
         flavor, source, e = variables.get(vname)
+        if e is None:
+            return ''
 
         if flavor == data.Variables.FLAVOR_SIMPLE:
             log.warning("%s: calling variable '%s' which is simply-expanded" % (self.loc, vname))
@@ -466,13 +468,44 @@ class ValueFunction(Function):
         flavor, source, value = variables.get(varname, expand=False)
         return value
 
+class EvalFunction(Function):
+    name = 'eval'
+    expectedargs = 1
+
+    def resolve(self, variables, setting):
+        raise NotImplementedError('no eval yet')
+
+class OriginFunction(Function):
+    name = 'origin'
+    expectedargs = 1
+
+    def resolve(self, variables, setting):
+        vname = self._arguments[0].resolve(variables, setting)
+
+        flavor, source, value = variables.get(vname)
+        if source is None:
+            return 'undefined'
+
+        if source == data.Variables.SOURCE_OVERRIDE:
+            return 'override'
+
+        if source == data.Variables.SOURCE_MAKEFILE:
+            return 'file'
+
+        if source == data.Variables.SOURCE_COMMANDLINE:
+            return 'command line'
+
+        if source == data.Variables.SOURCE_AUTOMATIC:
+            return 'automatic'
+
+        assert False, "Unexpected source value: %s" % source
+
 class FlavorFunction(Function):
     name = 'flavor'
     expectedargs = 1
 
     def resolve(self, variables, setting):
         varname = self._arguments[0].resolve(variables, setting)
-
         
         flavor, source, value = variables.get(varname)
         if flavor is None:
@@ -557,8 +590,8 @@ functionmap = {
     'foreach': ForEachFunction,
     'call': CallFunction,
     'value': ValueFunction,
-    'eval': None,
-    'origin': None,
+    'eval': EvalFunction,
+    'origin': OriginFunction,
     'flavor': FlavorFunction,
     'shell': ShellFunction,
     'error': ErrorFunction,
