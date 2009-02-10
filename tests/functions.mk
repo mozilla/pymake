@@ -10,4 +10,6 @@ all:
 	test "$(firstword )" = ""
 	test "$(dir foo.c path/foo.o dir/dir2/)" = "./ path/ dir/dir2/"
 	test "$(notdir foo.c path/foo.o dir/dir2/)" = "foo.c foo.o "
+	test "$(suffix src/foo.c dir/my.dir/foo foo.o)" = ".c .o"
+	test "$(basename src/foo.c dir/my.dir/foo foo.c .c)" = "src/foo dir/my.dir/foo foo "
 	@echo TEST-PASS

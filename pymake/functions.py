@@ -240,14 +240,14 @@ class LastWordFunction(Function):
             return ''
         return wl[0]
 
-def pathsplit(path):
+def pathsplit(path, default='./'):
     """
     Splits a path into dirpart, filepart on the last slash. If there is no slash, dirpart
     is ./
     """
     dir, slash, file = path.rpartition('/')
     if dir == '':
-        return './', file
+        return default, file
 
     return dir + slash, file
 
@@ -266,6 +266,38 @@ class NotDirFunction(Function):
     def resolve(self, variables, setting):
         return ' '.join((pathsplit(path)[1]
                          for path in data.splitwords(self._arguments[0].resolve(variables, setting))))
+
+class SuffixFunction(Function):
+    name = 'suffix'
+    expectedargs = 1
+
+    @staticmethod
+    def suffixes(words):
+        for w in words:
+            dir, file = pathsplit(w)
+            base, dot, suffix = file.rpartition('.')
+            if base != '':
+                yield dot + suffix
+
+    def resolve(self, variables, setting):
+        return ' '.join(self.suffixes(data.splitwords(self._arguments[0].resolve(variables, setting))))
+
+class BasenameFunction(Function):
+    name = 'basename'
+    expectedargs = 1
+
+    @staticmethod
+    def basenames(words):
+        for w in words:
+            dir, file = pathsplit(w, '')
+            base, dot, suffix = file.rpartition('.')
+            if dot == '':
+                base = suffix
+
+            yield dir + base
+
+    def resolve(self, variables, setting):
+        return ' '.join(self.basenames(data.splitwords(self._arguments[0].resolve(variables, setting))))
 
 class ValueFunction(Function):
     name = 'value'
@@ -354,8 +386,8 @@ functionmap = {
     'lastword': LastWordFunction,
     'dir': DirFunction,
     'notdir': NotDirFunction,
-    'suffix': None,
-    'basename': None,
+    'suffix': SuffixFunction,
+    'basename': BasenameFunction,
     'addsuffix': None,
     'addprefix': None,
     'join': None,
