@@ -21,6 +21,7 @@ class Function(object):
     """
     def __init__(self, loc):
         self._arguments = []
+        self.loc = loc
 
     def __getitem__(self, key):
         return self._arguments[key]
