@@ -509,6 +509,12 @@ class Target(object):
 
         self.resolvevpath(makefile)
 
+        # self.remade is a tri-state:
+        #   None - we haven't remade yet
+        #   True - we did something to remake ourself
+        #   False - we did nothing to remake ourself
+        self.remade = None
+
         # Sanity-check our rules. If we're single-colon, only one rule should have commands
         ruleswithcommands = self.ruleswithcommands()
         if len(self.rules) and not self.isdoublecolon():
@@ -577,7 +583,8 @@ class Target(object):
         """
         assert self.vpathtarget is not None, "Target was never resolved!"
 
-        log.info("Starting potential remake of '%s'" % (self.target,))
+        if self.remade is not None:
+            return self.remade
 
         didanything = False
 
@@ -623,7 +630,7 @@ class Target(object):
                     commandrule.execute(self, makefile)
                 didanything = True
 
-        log.info("Did something to rebuild '%s'? %s" % (self.target, didanything))
+        self.remade = didanything
         return didanything
 
 def setautomaticvariables(v, makefile, target, prerequisites):
