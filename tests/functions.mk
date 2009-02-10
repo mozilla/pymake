@@ -12,4 +12,6 @@ all:
 	test "$(notdir foo.c path/foo.o dir/dir2/)" = "foo.c foo.o "
 	test "$(suffix src/foo.c dir/my.dir/foo foo.o)" = ".c .o"
 	test "$(basename src/foo.c dir/my.dir/foo foo.c .c)" = "src/foo dir/my.dir/foo foo "
+	test "$(addprefix src/,foo bar.c dir/foo)" = "src/foo src/bar.c src/dir/foo"
+	test "$(addsuffix .c,foo dir/bar)" = "foo.c dir/bar.c"
 	@echo TEST-PASS

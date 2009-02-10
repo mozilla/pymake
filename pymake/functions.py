@@ -299,6 +299,24 @@ class BasenameFunction(Function):
     def resolve(self, variables, setting):
         return ' '.join(self.basenames(data.splitwords(self._arguments[0].resolve(variables, setting))))
 
+class AddSuffixFunction(Function):
+    name = 'addprefix'
+    expectedargs = 2
+
+    def resolve(self, variables, setting):
+        suffix = self._arguments[0].resolve(variables, setting)
+
+        return ' '.join((w + suffix for w in data.splitwords(self._arguments[1].resolve(variables, setting))))
+
+class AddPrefixFunction(Function):
+    name = 'addsuffix'
+    expectedargs = 2
+
+    def resolve(self, variables, setting):
+        prefix = self._arguments[0].resolve(variables, setting)
+
+        return ' '.join((prefix + w for w in data.splitwords(self._arguments[1].resolve(variables, setting))))
+
 class ValueFunction(Function):
     name = 'value'
     expectedargs = 1
@@ -388,8 +406,8 @@ functionmap = {
     'notdir': NotDirFunction,
     'suffix': SuffixFunction,
     'basename': BasenameFunction,
-    'addsuffix': None,
-    'addprefix': None,
+    'addsuffix': AddSuffixFunction,
+    'addprefix': AddPrefixFunction,
     'join': None,
     'wildcard': None,
     'realpath': None,
