@@ -35,8 +35,9 @@ if len(options.makefiles) == 0:
         sys.exit(2)
 
 try:
+    i = 0
     while True:
-        m = Makefile()
+        m = Makefile(restarts=i)
         targets = parsecommandlineargs(m, arguments)
 
         for f in options.makefiles:
@@ -45,6 +46,7 @@ try:
         m.finishparsing()
         if m.remakemakefiles():
             log.info("restarting makefile parsing")
+            i += 1
             continue
 
         break

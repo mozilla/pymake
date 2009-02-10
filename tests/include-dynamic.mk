@@ -6,15 +6,16 @@ if ! test -f include-dynamic.inc; then \
 fi \
 )
 
-
 # before running the 'all' rule, we should be rebuilding include-dynamic.inc,
 # because there is a rule to do so
 
 all:
 	test $(TESTVAR) = newval
+	test "$(MAKE_RESTARTS)" = 1
 	@echo TEST-PASS
 
 include-dynamic.inc: include-dynamic.inc.in
+	test "$(MAKE_RESTARTS)" = ""
 	cp $< $@
 
 include include-dynamic.inc

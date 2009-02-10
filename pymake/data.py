@@ -140,6 +140,9 @@ class Expansion(object):
     def __iter__(self):
         return iter(self._elements)
 
+    def __repr__(self):
+        return "<Expansion with elements: %r>" % (self._elements,)
+
 class Variables(object):
     """
     A mapping from variable names to variables. Variables have flavor, source, and value. The value is an 
@@ -777,7 +780,7 @@ class PatternRule(object):
             subprocess.check_call(cstring, shell=True)
 
 class Makefile(object):
-    def __init__(self):
+    def __init__(self, restarts=0):
         self.defaulttarget = None
         self.variables = Variables()
         self._targets = {}
@@ -787,6 +790,9 @@ class Makefile(object):
 
         # the list of included makefiles, whether or not they existed
         self.included = []
+
+        self.variables.set('MAKE_RESTARTS', Variables.FLAVOR_SIMPLE,
+                           Variables.SOURCE_AUTOMATIC, restarts > 0 and str(restarts) or '')
 
     def foundtarget(self, t):
         """
