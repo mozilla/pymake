@@ -29,4 +29,5 @@ all:
 	test "$(or $(NULL),2,$(warning TEST-FAIL bad or short-circuit))" = "2"
 	test "$(and ,$(warning TEST-FAIL bad and short-circuit))" = ""
 	test "$(and 1,2)" = "2"
+	test "$(foreach i,foo bar,found:$(i))" = "found:foo found:bar"
 	@echo TEST-PASS

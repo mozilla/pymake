@@ -410,6 +410,52 @@ class AndFunction(Function):
 
         return r
 
+class ForEachFunction(Function):
+    name = 'foreach'
+    expectedargs = 3
+
+    def resolve(self, variables, setting):
+        vname = self._arguments[0].resolve(variables, setting)
+        if vname == setting:
+            raise DataError("Recursively setting variable '%s'" % (vname,))
+
+        words = data.splitwords(self._arguments[1].resolve(variables, setting))
+        e = self._arguments[2]
+
+        results = []
+
+        v = data.Variables(parent=variables)
+        for w in words:
+            v.set(vname, data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_OVERRIDE, w)
+            results.append(e.resolve(v, setting))
+
+        return ' '.join(results)
+
+class CallFunction(Function):
+    name = 'call'
+
+    def setup(self):
+        assert len(self._arguments) > 0
+
+    def resolve(self, variables, setting):
+        vname = self._arguments[0].resolve(variables, setting)
+        if vname == setting:
+            raise DataError("Recursively setting variable '%s'" % (vname,))
+
+        v = data.Variables(parent=variables)
+        v.set('0', data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_OVERRIDE, vname)
+        for i in xrange(1, len(self._arguments)):
+            param = self._arguments[i].resolve(variables, setting)
+            v.set(str(i), data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_OVERRIDE, param)
+
+        flavor, source, e = variables.get(vname)
+
+        if flavor == data.Variables.FLAVOR_SIMPLE:
+            log.warning("%s: calling variable '%s' which is simply-expanded" % (self.loc, vname))
+
+        # but we'll do it anyway
+        return e.resolve(v, setting)
+
 class ValueFunction(Function):
     name = 'value'
     expectedargs = 1
@@ -508,8 +554,8 @@ functionmap = {
     'if': IfFunction,
     'or': OrFunction,
     'and': AndFunction,
-    'foreach': None,
-    'call': None,
+    'foreach': ForEachFunction,
+    'call': CallFunction,
     'value': ValueFunction,
     'eval': None,
     'origin': None,
