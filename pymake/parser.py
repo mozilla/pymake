@@ -485,7 +485,7 @@ class Condition(object):
             self.everactive = True
 
 directives = [k for k in conditionkeywords.iterkeys()] + \
-    ['else', 'endif', 'define', 'endef', 'override', 'include', '-include', 'vpath']
+    ['else', 'endif', 'define', 'endef', 'override', 'include', '-include', 'vpath', 'export', 'unexport']
 
 varsettokens = (':=', '+=', '?=', '=')
 
@@ -578,6 +578,29 @@ def parsestream(fd, filename, makefile):
                 m = conditionkeywords[kword](d, offset, makefile)
                 condstack.append(Condition(m, d.getloc(offset)))
                 continue
+
+            if kword == 'export':
+                e, token, offset = parsemakesyntax(d, offset, varsettokens, itermakefilechars)
+                e.lstrip()
+                e.rstrip()
+                vars = e.resolve(makefile.variables, None)
+                if token is None:
+                    vlist = data.splitwords(vars)
+                    if len(vlist) == 0:
+                        raise SyntaxError("Exporting all variables is not supported", d.getloc(offset))
+                else:
+                    vlist = [vars]
+                    offset = d.skipwhitespace(offset)
+                    setvariable(makefile.variables, makefile.variables,
+                                vars, token, d, offset)
+
+                for v in vlist:
+                    makefile.exportedvars.add(v)
+
+                continue
+
+            if kword == 'unexport':
+                raise SyntaxError("unexporting variables is not supported", d.getloc(offset))
 
             assert kword is None
 

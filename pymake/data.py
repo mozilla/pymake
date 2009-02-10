@@ -786,6 +786,7 @@ class Makefile(object):
     def __init__(self, workdir=None, restarts=0):
         self.defaulttarget = None
         self.variables = Variables()
+        self.exportedvars = set()
         self._targets = {}
         self._patternvariables = [] # of (pattern, variables)
         self.implicitrules = []
