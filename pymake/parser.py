@@ -355,7 +355,13 @@ def setvariable(resolvevariables, setvariables, vname, token, d, offset, iterfun
         setvariables.append(vname, source, val, resolvevariables)
         return
 
-    if token == '=':
+    if token == '?=':
+        flavor = data.Variables.FLAVOR_RECURSIVE
+        val = ''.join((c for c, o, l in iterfunc(d, offset)))
+        oldflavor, oldsource, oldval = setvariables.get(vname, expand=False)
+        if oldval is not None:
+            return
+    elif token == '=':
         flavor = data.Variables.FLAVOR_RECURSIVE
         val = ''.join((c for c, o, l in iterfunc(d, offset)))
     else:
@@ -481,7 +487,7 @@ class Condition(object):
 directives = [k for k in conditionkeywords.iterkeys()] + \
     ['else', 'endif', 'define', 'endef', 'override', 'include', '-include', 'vpath']
 
-varsettokens = (':=', '+=', '=')
+varsettokens = (':=', '+=', '?=', '=')
 
 def parsestream(fd, filename, makefile):
     """

@@ -15,6 +15,8 @@ RECVAR += var baz
 IMMVAR := bloo
 IMMVAR += $(RECVAR)
 
+BASIC ?= notval
+
 all: BASIC = valall
 all: RECVAR += $(BASIC)
 all: IMMVAR += $(BASIC)
@@ -23,7 +25,7 @@ all: OBASIC += allmore
 
 RECVAR = blimey
 
-all:
+all: other
 	test "$(TEST2)" = "val"
 	test '$(value TEST2)' = '$$(TES T)'
 	test "$(RECVAR)" = "blimey valall"
@@ -31,3 +33,15 @@ all:
 	test "$(UNSET)" = "more"
 	test "$(OBASIC)" = "oval"
 	@echo TEST-PASS
+
+OVAR = oval
+OVAR ?= onotval
+
+other: OVAR ?= ooval
+other: LATERVAR ?= lateroverride
+
+LATERVAR = olater
+
+other:
+	test "$(OVAR)" = "oval"
+	test "$(LATERVAR)" = "lateroverride"

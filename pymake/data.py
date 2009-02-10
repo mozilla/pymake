@@ -261,6 +261,9 @@ class Variables(object):
         for k, (flavor, source, value) in self._map.iteritems():
             yield k, flavor, source, value
 
+    def __contains__(self, item):
+        return item in self._map
+
 class Pattern(object):
     """
     A pattern is a string, possibly with a % substitution character. From the GNU make manual:
