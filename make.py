@@ -21,11 +21,17 @@ op.add_option('-f', '--file', '--makefile',
 op.add_option('-v', '--verbose',
               action="store_true",
               dest="verbose", default=True)
+op.add_option('-C', '--directory',
+              dest="directory", default=None)
 
 options, arguments = op.parse_args()
 
 if options.verbose:
     logging.basicConfig(level=logging.DEBUG)
+
+if options.directory:
+    log.info("Switching to directory: %s" % options.directory)
+    os.chdir(options.directory)
 
 if len(options.makefiles) == 0:
     if os.path.exists('Makefile'):

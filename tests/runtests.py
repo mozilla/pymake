@@ -49,7 +49,7 @@ for makefile in makefiles:
     if os.path.exists(opts.tempdir): shutil.rmtree(opts.tempdir)
     os.mkdir(opts.tempdir, 0755)
 
-    cline = [opts.make, '-f', os.path.abspath(makefile), 'TESTPATH=%s' % thisdir]
+    cline = [opts.make, '-C', opts.tempdir, '-f', os.path.abspath(makefile), 'TESTPATH=%s' % thisdir]
     returncode = 0
 
     mdata = open(makefile)
@@ -69,7 +69,7 @@ for makefile in makefiles:
 
     mdata.close()
 
-    p = Popen(cline, stdout=PIPE, stderr=STDOUT, cwd=opts.tempdir)
+    p = Popen(cline, stdout=PIPE, stderr=STDOUT)
     stdout, d = p.communicate()
     if p.returncode != returncode:
         print "FAIL (returncode=%i)" % p.returncode
