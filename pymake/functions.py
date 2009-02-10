@@ -46,7 +46,7 @@ class VariableRef(Function):
         self.vname = vname
         
     def setup(self):
-        pass
+        assert False, "Shouldn't get here"
 
     def resolve(self, variables, setting):
         vname = self.vname.resolve(variables, setting)
@@ -69,7 +69,7 @@ class SubstitutionRef(Function):
         self.substto = substto
 
     def setup(self):
-        pass
+        assert False, "Shouldn't get here"
 
     def resolve(self, variables, setting):
         vname = self.vname.resolve(variables, setting)
@@ -358,6 +358,58 @@ class AbspathFunction(Function):
         return ' '.join((os.path.abspath(f)
                          for f in data.splitwords(self._arguments[0].resolve(variables, setting))))
 
+class IfFunction(Function):
+    name = 'if'
+
+    def setup(self):
+        if len(self._arguments) < 2:
+            raise DataError("Not enough arguments to function if", self.loc)
+        if len(self._arguments) > 3:
+            log.warning("%s: if function takes no more than three arguments, got %i" % (self.loc,))
+
+        self._arguments[0].lstrip()
+        self._arguments[0].rstrip()
+
+    def resolve(self, variables, setting):
+        condition = self._arguments[0].resolve(variables, setting)
+        if len(condition):
+            return self._arguments[1].resolve(variables, setting)
+
+        if len(self._arguments) > 2:
+            return self._arguments[2].resolve(variables, setting)
+
+        return ''
+
+class OrFunction(Function):
+    name = 'or'
+
+    def setup(self):
+        pass
+
+    def resolve(self, variables, setting):
+        for arg in self._arguments:
+            r = arg.resolve(variables, setting)
+            if r != '':
+                return r
+
+        return ''
+
+class AndFunction(Function):
+    name = 'and'
+
+    def setup(self):
+        pass
+
+    def resolve(self, variables, setting):
+        r = ''
+
+        for arg in self._arguments:
+            r = arg.resolve(variables, setting)
+            if r == '':
+                return ''
+
+        return r
+
 class ValueFunction(Function):
     name = 'value'
     expectedargs = 1
@@ -453,9 +505,9 @@ functionmap = {
     'wildcard': WildcardFunction,
     'realpath': RealpathFunction,
     'abspath': AbspathFunction,
-    'if': None,
-    'or': None,
-    'and': None,
+    'if': IfFunction,
+    'or': OrFunction,
+    'and': AndFunction,
     'foreach': None,
     'call': None,
     'value': ValueFunction,

@@ -22,4 +22,11 @@ all:
 	test "$(join a b c, 1 2 3)" = "a1 b2 c3"
 	test "$(join a b, 1 2 3)" = "a1 b2 3"
 	test "$(join a b c, 1 2)" = "a1 b2 c"
+	test "$(if $(NULL) ,yes)" = ""
+	test "$(if 1,yes,no)" = "yes"
+	test "$(if ,yes,no )" = "no "
+	test "$(or $(NULL),1)" = "1"
+	test "$(or $(NULL),2,$(warning TEST-FAIL bad or short-circuit))" = "2"
+	test "$(and ,$(warning TEST-FAIL bad and short-circuit))" = ""
+	test "$(and 1,2)" = "2"
 	@echo TEST-PASS
