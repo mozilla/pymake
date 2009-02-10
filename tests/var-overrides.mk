@@ -6,6 +6,8 @@
 MVAR = mval
 CLINEVAR = deadbeef
 
+override CLINEVAR2 = mval2
+
 all:
 	test "$(origin NOVAR)" = "undefined"
 	test "$(CLINEVAR)" = "clineval"
@@ -14,4 +16,6 @@ all:
 	test "$(origin MVAR)" = "file"
 	test "$(@)" = "all"
 	test "$(origin @)" = "automatic"
+	test "$(origin CLINEVAR2)" = "override"
+	test "$(CLINEVAR2)" = "mval2"
 	@echo TEST-PASS

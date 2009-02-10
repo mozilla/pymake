@@ -11,6 +11,38 @@ from optparse import OptionParser
 from pymake.data import Makefile, DataError
 from pymake.parser import parsestream, parsecommandlineargs, SyntaxError
 
+def parsemakeflags():
+    makeflags = os.environ.get('MAKEFLAGS', '')
+    makeflags.strip()
+
+    opts = []
+    curopt = ''
+
+    i = 0
+    while i < len(makeflags):
+        c = makeflags[i]
+        if c.isspace():
+            opts.append(curopt)
+            curopt = ''
+            i += 1
+            while i < len(makeflags) and makeflags[i].isspace():
+                i += 1
+            continue
+
+        if c == '\\':
+            i += 1
+            if i == len(makeflags):
+                raise DataError("MAKEFLAGS has trailing backslash")
+            c = makeflags[i]
+            
+        curopt += c
+        i += 1
+
+    if curopt != '':
+        opts.append(curopt)
+
+    return opts
+
 log = logging.getLogger('pymake.execution')
 
 op = OptionParser()
@@ -24,10 +56,15 @@ op.add_option('-v', '--verbose',
 op.add_option('-C', '--directory',
               dest="directory", default=None)
 
-options, arguments = op.parse_args()
+arglist = sys.argv[1:] + parsemakeflags()
+
+options, arguments = op.parse_args(arglist)
+
+makeflags = ''
 
 if options.verbose:
     logging.basicConfig(level=logging.DEBUG)
+    makeflags += 'v'
 
 if options.directory:
     log.info("Switching to directory: %s" % options.directory)
@@ -40,10 +77,13 @@ if len(options.makefiles) == 0:
         print "No makefile found"
         sys.exit(2)
 
+makelevel = int(os.environ.get('MAKELEVEL', '0'))
+
 try:
     i = 0
     while True:
-        m = Makefile(restarts=i)
+        m = Makefile(restarts=i, make='%s %s' % (sys.executable, sys.argv[0]),
+                     makeflags=makeflags, makelevel=makelevel)
         targets = parsecommandlineargs(m, arguments)
 
         for f in options.makefiles:

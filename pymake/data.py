@@ -156,8 +156,7 @@ class Variables(object):
     SOURCE_OVERRIDE = 0
     SOURCE_COMMANDLINE = 1
     SOURCE_MAKEFILE = 2
-    # I have no intention of supporting values from the environment
-    # SOURCE ENVIRONMENT = 3
+    SOURCE_ENVIRONMENT = 3
     SOURCE_AUTOMATIC = 4
     # I have no intention of supporting builtin rules or variables that go with them
     # SOURCE_IMPLICIT = 5
@@ -165,6 +164,10 @@ class Variables(object):
     def __init__(self, parent=None):
         self._map = {}
         self.parent = parent
+
+    def readfromenvironment(self):
+        for k, v in os.environ.iteritems():
+            self.set(k, self.FLAVOR_SIMPLE, self.SOURCE_ENVIRONMENT, v)
 
     def get(self, name, expand=True):
         """
@@ -222,7 +225,7 @@ class Variables(object):
 
     def set(self, name, flavor, source, value):
         assert flavor in (self.FLAVOR_RECURSIVE, self.FLAVOR_SIMPLE)
-        assert source in (self.SOURCE_OVERRIDE, self.SOURCE_COMMANDLINE, self.SOURCE_MAKEFILE, self.SOURCE_AUTOMATIC)
+        assert source in (self.SOURCE_OVERRIDE, self.SOURCE_COMMANDLINE, self.SOURCE_MAKEFILE, self.SOURCE_ENVIRONMENT, self.SOURCE_AUTOMATIC)
         assert isinstance(value, str)
 
         prevflavor, prevsource, prevvalue = self.get(name)
@@ -706,6 +709,8 @@ class Rule(object):
         setautomaticvariables(v, makefile, target, self.prerequisites)
         # TODO: $* in non-pattern rules sucks
 
+        env = makefile.getsubenvironment(v)
+
         for c in self.commands:
             cstring = c.resolve(v, None)
             for cline in splitcommand(cstring):
@@ -713,7 +718,7 @@ class Rule(object):
                     cline = cline[1:]
                 if not len(cline) or cline.isspace():
                     continue
-                subprocess.check_call(cline, shell=True)
+                subprocess.check_call(cline, shell=True, env=env)
 
 class PatternRule(object):
     """
@@ -783,10 +788,14 @@ class PatternRule(object):
             subprocess.check_call(cstring, shell=True)
 
 class Makefile(object):
-    def __init__(self, workdir=None, restarts=0):
+    def __init__(self, workdir=None, restarts=0, make=None, makeflags=None, makelevel=0):
         self.defaulttarget = None
+
         self.variables = Variables()
+        self.variables.readfromenvironment()
+
         self.exportedvars = set()
+        self.overrides = []
         self._targets = {}
         self._patternvariables = [] # of (pattern, variables)
         self.implicitrules = []
@@ -804,6 +813,18 @@ class Makefile(object):
 
         self.variables.set('MAKE_RESTARTS', Variables.FLAVOR_SIMPLE,
                            Variables.SOURCE_AUTOMATIC, restarts > 0 and str(restarts) or '')
+
+        if make is not None:
+            self.variables.set('MAKE', Variables.FLAVOR_SIMPLE,
+                               Variables.SOURCE_MAKEFILE, make)
+
+        if makeflags is not None:
+            self.variables.set('MAKEFLAGS', Variables.FLAVOR_SIMPLE,
+                               Variables.SOURCE_MAKEFILE, makeflags)
+
+        self.makelevel = makelevel
+        self.variables.set('MAKELEVEL', Variables.FLAVOR_SIMPLE,
+                           Variables.SOURCE_MAKEFILE, str(makelevel))
 
     def foundtarget(self, t):
         """
@@ -899,3 +920,31 @@ class Makefile(object):
                     reparse = True
 
         return reparse
+
+    flagescape = re.compile(r'([\s\\])')
+
+    def getsubenvironment(self, variables):
+        env = dict(os.environ)
+        for vname in self.exportedvars:
+            flavor, source, val = variables.get(vname)
+            if val is None:
+                strval = ''
+            else:
+                strval = val.resolve(variables, vname)
+            env[vname] = strval
+
+        flavor, source, val = variables.get('MAKEFLAGS')
+        if val is None:
+            makeflags = ''
+        else:
+            makeflags = '-' + val.resolve(variables, 'MAKEFLAGS')
+
+        makeflags += ' -- '
+        makeflags += ' '.join((self.flagescape.sub(r'\\\1', o) for o in self.overrides))
+
+        print "makeflags: %r" % makeflags
+
+        env['MAKEFLAGS'] = makeflags
+
+        env['MAKELEVEL'] = str(self.makelevel + 1)
+        return env

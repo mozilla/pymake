@@ -333,7 +333,8 @@ def iterlines(fd):
 
         yield (lineno, line)
 
-def setvariable(resolvevariables, setvariables, vname, token, d, offset, iterfunc=itermakefilechars, fromcl=False):
+def setvariable(resolvevariables, setvariables, vname, token, d, offset,
+                iterfunc=itermakefilechars, source=data.Variables.SOURCE_MAKEFILE):
     """
     Parse what's left in a data iterator di into a variable.
     """
@@ -344,11 +345,6 @@ def setvariable(resolvevariables, setvariables, vname, token, d, offset, iterfun
 
     if len(vname) == 0:
         raise SyntaxError("Empty variable name", loc=d.getloc(offset))
-
-    if fromcl:
-        source = data.Variables.SOURCE_COMMANDLINE
-    else:
-        source = data.Variables.SOURCE_MAKEFILE
 
     if token == '+=':
         val = ''.join((c for c, o, l in iterfunc(d, offset)))
@@ -387,12 +383,14 @@ def parsecommandlineargs(makefile, args):
         if t == '':
             vname, t, val = a.partition('=')
         if t != '':
+            makefile.overrides.append(a)
+
             vname = vname.strip()
             d = Data(None, None)
             d.append(val, Location('<command-line>', i, len(vname) + len(t)))
 
             setvariable(makefile.variables, makefile.variables,
-                        vname, t, d, 0, fromcl=True,
+                        vname, t, d, 0, source=data.Variables.SOURCE_COMMANDLINE,
                         iterfunc=iterdata)
         else:
             r.append(a)
@@ -552,9 +550,6 @@ def parsestream(fd, filename, makefile):
             if kword == 'endef':
                 raise SyntaxError("Unmatched endef", d.getloc(offset))
 
-            if kword == 'override':
-                raise NotImplementedError('no overrides yet')
-
             if kword == 'define':
                 e, t, i = parsemakesyntax(d, offset, (), itermakefilechars)
 
@@ -577,6 +572,21 @@ def parsestream(fd, filename, makefile):
             if kword in conditionkeywords:
                 m = conditionkeywords[kword](d, offset, makefile)
                 condstack.append(Condition(m, d.getloc(offset)))
+                continue
+
+            if kword == 'override':
+                e, token, offset = parsemakesyntax(d, offset, varsettokens, itermakefilechars)
+                e.lstrip()
+                e.rstrip()
+
+                if token is None:
+                    raise SyntaxError("Malformed override directive, need =", d.getloc(offset))
+
+                vname = e.resolve(makefile.variables, None)
+                offset = d.skipwhitespace(offset)
+                setvariable(makefile.variables, makefile.variables,
+                            vname, token, d, offset,
+                            source=data.Variables.SOURCE_OVERRIDE)
                 continue
 
             if kword == 'export':
@@ -602,7 +612,7 @@ def parsestream(fd, filename, makefile):
             if kword == 'unexport':
                 raise SyntaxError("unexporting variables is not supported", d.getloc(offset))
 
-            assert kword is None
+            assert kword is None, "unexpected kword: %r" % (kword,)
 
             if any((not c.active for c in condstack)):
                 log.info('%s: skipping line because of active conditions' % (d.getloc(0),))

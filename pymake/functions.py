@@ -426,7 +426,7 @@ class ForEachFunction(Function):
 
         v = data.Variables(parent=variables)
         for w in words:
-            v.set(vname, data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_OVERRIDE, w)
+            v.set(vname, data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_AUTOMATIC, w)
             results.append(e.resolve(v, setting))
 
         return ' '.join(results)
@@ -443,10 +443,10 @@ class CallFunction(Function):
             raise DataError("Recursively setting variable '%s'" % (vname,))
 
         v = data.Variables(parent=variables)
-        v.set('0', data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_OVERRIDE, vname)
+        v.set('0', data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_AUTOMATIC, vname)
         for i in xrange(1, len(self._arguments)):
             param = self._arguments[i].resolve(variables, setting)
-            v.set(str(i), data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_OVERRIDE, param)
+            v.set(str(i), data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_AUTOMATIC, param)
 
         flavor, source, e = variables.get(vname)
         if e is None:
@@ -466,6 +466,9 @@ class ValueFunction(Function):
         varname = self._arguments[0].resolve(variables, setting)
 
         flavor, source, value = variables.get(varname, expand=False)
+        if value is None:
+            return ''
+
         return value
 
 class EvalFunction(Function):
@@ -491,6 +494,9 @@ class OriginFunction(Function):
 
         if source == data.Variables.SOURCE_MAKEFILE:
             return 'file'
+
+        if source == data.Variables.SOURCE_ENVIRONMENT:
+            return 'environment'
 
         if source == data.Variables.SOURCE_COMMANDLINE:
             return 'command line'
