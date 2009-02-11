@@ -738,10 +738,11 @@ PARSESTATE_SUBSTFROM = 3   # expanding a variable expansion substitution "from" 
 PARSESTATE_SUBSTTO = 4     # expanding a variable expansion substitution "to" value
 
 class ParseStackFrame(object):
-    def __init__(self, parsestate, expansion, stopon, **kwargs):
+    def __init__(self, parsestate, expansion, stopon, closebrace, **kwargs):
         self.parsestate = parsestate
         self.expansion = expansion
         self.stopon = stopon
+        self.closebrace = closebrace
         for key, value in kwargs.iteritems():
             setattr(self, key, value)
 
@@ -770,7 +771,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
     assert callable(iterfunc)
 
     stack = [
-        ParseStackFrame(PARSESTATE_TOPLEVEL, data.Expansion(), stopon)
+        ParseStackFrame(PARSESTATE_TOPLEVEL, data.Expansion(), stopon, closebrace=None)
     ]
 
     di = iterfunc(d, startat)
@@ -801,8 +802,8 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                     stacktop.function.append(stacktop.expansion)
 
                     if len(stacktop.function) == stacktop.function.maxargs:
-                        stacktop.stopon = (')',)
-                elif token == ')':
+                        stacktop.stopon = (stacktop.closebrace,)
+                elif token in (')', '}'):
                     stacktop.function.setup()
                     stack.pop()
                     stack[-1].expansion.append(stacktop.function)
@@ -813,8 +814,8 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                     stacktop.varname = stacktop.expansion
                     stacktop.parsestate = PARSESTATE_SUBSTFROM
                     stacktop.expansion = data.Expansion()
-                    stacktop.stopon = ('=', ')')
-                elif token == ')':
+                    stacktop.stopon = ('=', stacktop.closebrace)
+                elif token in (')', '}'):
                     stack.pop()
                     stack[-1].expansion.append(functions.VariableRef(stacktop.loc, stacktop.expansion))
                 else:
@@ -824,8 +825,8 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                     stacktop.substfrom = stacktop.expansion
                     stacktop.parsestate = PARSESTATE_SUBSTTO
                     stacktop.expansion = data.Expansion()
-                    stacktop.stopon = (')',)
-                elif token == ')':
+                    stacktop.stopon = (stacktop.closebrace,)
+                elif token in (')', '}'):
                     # A substitution of the form $(VARNAME:.ee) is probably a mistake, but make
                     # parses it. Issue a warning. Combine the varname and substfrom expansions to
                     # make the compatible varname. See tests/var-substitutions.mk SIMPLE3SUBSTNAME
@@ -837,7 +838,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 else:
                     assert False, "Not reached, PARSESTATE_SUBSTFROM"
             elif stacktop.parsestate == PARSESTATE_SUBSTTO:
-                assert token == ')', "Not reached, PARSESTATE_SUBSTTO"
+                assert token in  (')','}'), "Not reached, PARSESTATE_SUBSTTO"
 
                 stack.pop()
                 stack[-1].expansion.append(functions.SubstitutionRef(stacktop.loc, stacktop.varname,
@@ -857,7 +858,9 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 stacktop.expansion.append('$')
                 continue
 
-            if c == '(':
+            if c in ('(', '{'):
+                closebrace = c == '(' and ')' or '}'
+
                 # look forward for a function name
                 fname, offset = d.findtoken(offset + 1, functiontokens, True)
                 if fname is not None:
@@ -870,12 +873,13 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                         stopon = (',', ')')
 
                     stack.append(ParseStackFrame(PARSESTATE_FUNCTION,
-                                                 e, stopon, function=fn))
+                                                 e, stopon, function=fn,
+                                                 closebrace=closebrace))
                     di = iterfunc(d, offset)
                     continue
 
                 e = data.Expansion()
-                stack.append(ParseStackFrame(PARSESTATE_VARNAME, e, (':', ')'), loc=loc))
+                stack.append(ParseStackFrame(PARSESTATE_VARNAME, e, (':', closebrace), closebrace=closebrace, loc=loc))
                 continue
 
             fe = data.Expansion()

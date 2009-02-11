@@ -13,6 +13,7 @@ VAR6$(VAR5) = val6
 all:
 	test "$( VAR)" = ""
 	test "$(VAR2)" = "= value"
+	test "${VAR2}" = "= value"
 	test "$(VAR6 )" = "val6"
 	test "$(VARC)" = "value "
 	@echo TEST-PASS
