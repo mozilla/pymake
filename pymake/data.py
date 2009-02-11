@@ -587,6 +587,30 @@ class Target(object):
             self.mtime = None
             return
 
+        if self.target.startswith('-l'):
+            stem = self.target[2:]
+            f, s, e = makefile.variables.get('.LIBPATTERNS')
+            if e is not None:
+                libpatterns = map(Pattern, splitwords(e.resolve(makefile.variables, [])))
+                if len(libpatterns):
+                    searchdirs = [''] + makefile.vpath
+
+                    for lp in libpatterns:
+                        if not lp.ispattern():
+                            raise DataError('.LIBPATTERNS contains a non-pattern')
+
+                        libname = lp.resolve('', stem)
+
+                        for dir in searchdirs:
+                            libpath = os.path.join(dir, libname)
+                            mtime = getmtime(libpath)
+                            if mtime is not None:
+                                self.vpathtarget = libpath
+                                self.mtime = mtime
+                                return
+
+                    raise ResolutionError("Library dependency '%s' not found, and rebuilding them is not supported." % (self.target))
+
         search = [self.target]
         if not os.path.isabs(self.target):
             search += [os.path.join(dir, self.target)
@@ -906,6 +930,9 @@ class Makefile(object):
         self.makelevel = makelevel
         self.variables.set('MAKELEVEL', Variables.FLAVOR_SIMPLE,
                            Variables.SOURCE_MAKEFILE, str(makelevel))
+
+        self.variables.set('.LIBPATTERNS', Variables.FLAVOR_SIMPLE,
+                           Variables.SOURCE_MAKEFILE, 'lib%.so lib%.a')
 
     def foundtarget(self, t):
         """
