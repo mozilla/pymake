@@ -2,7 +2,7 @@
 
 $(info MAKEFLAGS = '$(MAKEFLAGS)')
 $(info MAKE = '$(MAKE)')
-$(info value(MAKE = "$(value MAKE)")
+$(info value MAKE = "$(value MAKE)")
 
 all:
 	env

@@ -35,7 +35,7 @@ class Function(object):
 
     def expectargs(self, argc):
         if len(self._arguments) < argc:
-            raise DataError("Not enough arguments to function %s" % self.name, self.loc)
+            raise data.DataError("Not enough arguments to function %s" % self.name, self.loc)
         if len(self._arguments) > argc:
             log.warning("%s: %s function takes three arguments, got %i" % (self.loc, self.name, len(self._arguments)))
 
@@ -50,15 +50,15 @@ class VariableRef(Function):
 
     def resolve(self, variables, setting):
         vname = self.vname.resolve(variables, setting)
-        if vname == setting:
-            raise DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
+        if vname in setting:
+            raise data.DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
 
         flavor, source, value = variables.get(vname)
         if value is None:
             log.warning("%s: variable '%s' has no value" % (self.loc, vname))
             return ''
 
-        return value.resolve(variables, setting)
+        return value.resolve(variables, setting + [vname])
 
 class SubstitutionRef(Function):
     """$(VARNAME:.c=.o) and $(VARNAME:%.c=%.o)"""
@@ -73,8 +73,8 @@ class SubstitutionRef(Function):
 
     def resolve(self, variables, setting):
         vname = self.vname.resolve(variables, setting)
-        if vname == setting:
-            raise DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
+        if vname in setting:
+            raise data.DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
 
         substfrom = self.substfrom.resolve(variables, setting)
         substto = self.substto.resolve(variables, setting)
@@ -84,7 +84,7 @@ class SubstitutionRef(Function):
             log.warning("%s: variable '%s' has no value" % (self.loc, vname))
             return ''
 
-        evalue = value.resolve(variables, setting)
+        evalue = value.resolve(variables, setting + [vname])
         words = data.splitwords(evalue)
 
         f = data.Pattern(substfrom)
@@ -363,7 +363,7 @@ class IfFunction(Function):
 
     def setup(self):
         if len(self._arguments) < 2:
-            raise DataError("Not enough arguments to function if", self.loc)
+            raise data.DataError("Not enough arguments to function if", self.loc)
         if len(self._arguments) > 3:
             log.warning("%s: if function takes no more than three arguments, got %i" % (self.loc,))
 
@@ -416,8 +416,6 @@ class ForEachFunction(Function):
 
     def resolve(self, variables, setting):
         vname = self._arguments[0].resolve(variables, setting)
-        if vname == setting:
-            raise DataError("Recursively setting variable '%s'" % (vname,))
 
         words = data.splitwords(self._arguments[1].resolve(variables, setting))
         e = self._arguments[2]
@@ -439,8 +437,8 @@ class CallFunction(Function):
 
     def resolve(self, variables, setting):
         vname = self._arguments[0].resolve(variables, setting)
-        if vname == setting:
-            raise DataError("Recursively setting variable '%s'" % (vname,))
+        if vname in setting:
+            raise data.DataError("Recursively setting variable '%s'" % (vname,))
 
         v = data.Variables(parent=variables)
         v.set('0', data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_AUTOMATIC, vname)
@@ -456,7 +454,7 @@ class CallFunction(Function):
             log.warning("%s: calling variable '%s' which is simply-expanded" % (self.loc, vname))
 
         # but we'll do it anyway
-        return e.resolve(v, setting)
+        return e.resolve(v, setting + [vname])
 
 class ValueFunction(Function):
     name = 'value'
