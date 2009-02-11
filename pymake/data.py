@@ -609,7 +609,9 @@ class Target(object):
                                 self.mtime = mtime
                                 return
 
-                    raise ResolutionError("Library dependency '%s' not found, and rebuilding them is not supported." % (self.target))
+                    self.vpathtarget = self.target
+                    self.mtime = None
+                    return
 
         search = [self.target]
         if not os.path.isabs(self.target):
