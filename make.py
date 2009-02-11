@@ -62,9 +62,12 @@ options, arguments = op.parse_args(arglist)
 
 makeflags = ''
 
+loglevel = logging.WARNING
 if options.verbose:
-    logging.basicConfig(level=logging.DEBUG)
+    loglevel = logging.DEBUG
     makeflags += 'v'
+
+logging.basicConfig(level=loglevel)
 
 if options.directory:
     log.info("Switching to directory: %s" % options.directory)

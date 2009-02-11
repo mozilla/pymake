@@ -649,13 +649,14 @@ def parsestream(fd, filename, makefile):
                 # any of the rules may have order-only prerequisites
                 # delimited by |, and a command delimited by ;
                 targets = map(data.Pattern, data.splitwords(e.resolve(makefile.variables)))
-                if len(targets) == 0:
-                    raise SyntaxError("No targets in rule", g.getloc(offset))
 
-                ispatterns = set((t.ispattern() for t in targets))
-                if len(ispatterns) == 2:
-                    raise SyntaxError("Mixed implicit and normal rule", d.getloc(offset))
-                ispattern, = ispatterns
+                if len(targets):
+                    ispatterns = set((t.ispattern() for t in targets))
+                    if len(ispatterns) == 2:
+                        raise SyntaxError("Mixed implicit and normal rule", d.getloc(offset))
+                    ispattern, = ispatterns
+                else:
+                    ispattern = False
 
                 e, token, offset = parsemakesyntax(d, offset,
                                                    varsettokens + (':', '|', ';'),
@@ -669,7 +670,8 @@ def parsestream(fd, filename, makefile):
                         currule = data.Rule(prereqs, doublecolon, loc=d.getloc(0))
                         for t in targets:
                             makefile.gettarget(t.gettarget()).addrule(currule)
-                        makefile.foundtarget(targets[0].gettarget())
+                        if len(targets):
+                            makefile.foundtarget(targets[0].gettarget())
 
                     if token == ';':
                         offset = d.skipwhitespace(offset)
@@ -713,7 +715,8 @@ def parsestream(fd, filename, makefile):
                     for t in targets:
                         makefile.gettarget(t.gettarget()).addrule(currule)
 
-                    makefile.foundtarget(targets[0].gettarget())
+                    if len(targets):
+                        makefile.foundtarget(targets[0].gettarget())
 
                     if token == ';':
                         offset = d.skipwhitespace(offset)

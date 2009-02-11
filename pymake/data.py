@@ -402,7 +402,7 @@ class Target(object):
         self.explicit = False
 
     def addrule(self, rule):
-        if len(self.rules) and rule.doublecolon != rules[0].doublecolon:
+        if len(self.rules) and rule.doublecolon != self.rules[0].doublecolon:
             # TODO: better location for this error
             raise DataError("Cannot have single- and double-colon rules for the same target.")
 
@@ -619,7 +619,7 @@ class Target(object):
                         remake = True
                 if remake:
                     self.remake()
-                    rule.execute(self, makefile)
+                    r.execute(self, makefile)
                     didanything = True
         else:
             commandrule = None
@@ -696,6 +696,7 @@ class Rule(object):
         self.prerequisites = prereqs
         self.doublecolon = doublecolon
         self.commands = []
+        self.loc = loc
 
     def addcommand(self, c):
         """Append a command expansion."""
