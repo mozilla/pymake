@@ -433,6 +433,7 @@ def ifeq(d, offset, makefile):
 
     val1 = arg1.resolve(makefile.variables)
     val2 = arg2.resolve(makefile.variables)
+
     return val1 == val2
 
 def ifneq(d, offset, makefile):
@@ -547,6 +548,15 @@ def parsestream(fd, filename, makefile):
                     condstack[-1].makeactive(m)
                 continue
 
+            if kword in conditionkeywords:
+                m = conditionkeywords[kword](d, offset, makefile)
+                condstack.append(Condition(m, d.getloc(offset)))
+                continue
+
+            if any((not c.active for c in condstack)):
+                log.info('%s: skipping line because of active conditions' % (d.getloc(0),))
+                continue
+
             if kword == 'endef':
                 raise SyntaxError("Unmatched endef", d.getloc(offset))
 
@@ -567,11 +577,6 @@ def parsestream(fd, filename, makefile):
                 files = data.splitwords(incfile.resolve(makefile.variables))
                 for f in files:
                     makefile.include(f, kword == 'include')
-                continue
-
-            if kword in conditionkeywords:
-                m = conditionkeywords[kword](d, offset, makefile)
-                condstack.append(Condition(m, d.getloc(offset)))
                 continue
 
             if kword == 'override':
@@ -613,10 +618,6 @@ def parsestream(fd, filename, makefile):
                 raise SyntaxError("unexporting variables is not supported", d.getloc(offset))
 
             assert kword is None, "unexpected kword: %r" % (kword,)
-
-            if any((not c.active for c in condstack)):
-                log.info('%s: skipping line because of active conditions' % (d.getloc(0),))
-                continue
 
             e, token, offset = parsemakesyntax(d, offset, varsettokens + ('::', ':'), itermakefilechars)
             if token is None:
@@ -794,10 +795,12 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
 
             if stacktop.parsestate == PARSESTATE_FUNCTION:
                 if token == ',':
-                    stacktop.function.append(stacktop.expansion)
                     stacktop.expansion = data.Expansion()
-                elif token == ')':
                     stacktop.function.append(stacktop.expansion)
+
+                    if len(stacktop.function) == stacktop.function.maxargs:
+                        stacktop.stopon = (')',)
+                elif token == ')':
                     stacktop.function.setup()
                     stack.pop()
                     stack[-1].expansion.append(stacktop.function)
@@ -857,9 +860,15 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 fname, offset = d.findtoken(offset + 1, functiontokens, True)
                 if fname is not None:
                     fn = functions.functionmap[fname](loc)
+                    e = data.Expansion()
+                    fn.append(e)
+                    if len(fn) == fn.maxargs:
+                        stopon = (')',)
+                    else:
+                        stopon = (',', ')')
+
                     stack.append(ParseStackFrame(PARSESTATE_FUNCTION,
-                                                 data.Expansion(), ',)',
-                                                 function=fn))
+                                                 e, stopon, function=fn))
                     di = iterfunc(d, offset)
                     continue
 

@@ -6,6 +6,7 @@ all:
 	test "$(filter foo/%.c b%,foo/a.c b.c foo/a.o)" = "foo/a.c b.c"
 	test "$(filter foo,foo bar)" = "foo"
 	test "$(filter-out foo/%.c b%,foo/a.c b.c foo/a.o)" = "foo/a.o"
+	test "$(filter-out %.c,foo,bar.c foo,bar.o)" = "foo,bar.o"
 	test "$(sort .go a b aa A c cc)" = ".go A a aa b c cc"
 	test "$(word 1, hello )" = "hello"
 	test "$(word 2, hello )" = ""

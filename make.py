@@ -13,7 +13,10 @@ from pymake.parser import parsestream, parsecommandlineargs, SyntaxError
 
 def parsemakeflags():
     makeflags = os.environ.get('MAKEFLAGS', '')
-    makeflags.strip()
+    makeflags = makeflags.strip()
+
+    if makeflags == '':
+        return []
 
     opts = []
     curopt = ''
@@ -43,18 +46,37 @@ def parsemakeflags():
 
     return opts
 
+def version(*args):
+    print """pymake: GNU-compatible make program
+Copyright (C) 2009 The Mozilla Foundation <http://www.mozilla.org/>
+This is free software; see the source for copying conditions.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE."""
+    sys.exit(0)
+
 log = logging.getLogger('pymake.execution')
+
+makelevel = int(os.environ.get('MAKELEVEL', '0'))
 
 op = OptionParser()
 op.add_option('-f', '--file', '--makefile',
               action='append',
               dest='makefiles',
               default=[])
-op.add_option('-v', '--verbose',
+op.add_option('-d', '--verbose',
               action="store_true",
-              dest="verbose", default=True)
+              dest="verbose", default=False)
 op.add_option('-C', '--directory',
               dest="directory", default=None)
+op.add_option('-v', '--version',
+              action="callback", callback=version)
+op.add_option('-j', '--jobs', type="int",
+              dest="jobcount", default=1)
 
 arglist = sys.argv[1:] + parsemakeflags()
 
@@ -66,6 +88,10 @@ loglevel = logging.WARNING
 if options.verbose:
     loglevel = logging.DEBUG
     makeflags += 'v'
+
+if options.jobcount:
+    log.info("pymake doesn't implement -j yet. ignoring")
+    makeflags += 'j%i' % options.jobcount
 
 logging.basicConfig(level=loglevel)
 
@@ -79,8 +105,6 @@ if len(options.makefiles) == 0:
     else:
         print "No makefile found"
         sys.exit(2)
-
-makelevel = int(os.environ.get('MAKELEVEL', '0'))
 
 try:
     i = 0

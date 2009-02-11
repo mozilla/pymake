@@ -549,7 +549,7 @@ class Target(object):
         if not len(self.rules) and self.mtime is None and not any((len(rule.prerequisitesfor(self.target)) > 0
                                                                    for rule in self.rules)):
             if required:
-                raise ResolutionError("No rule to make %s needed by %s" % (self.target,
+                raise ResolutionError("No rule to make target '%s' needed by %s" % (self.target,
                     ' -> '.join(targetstack[:-1])))
 
         for r in self.rules:
@@ -686,6 +686,34 @@ def splitcommand(command):
     if i > start:
         yield command[start:i]
 
+def findmodifiers(command):
+    """
+    Find any of +-@ prefixed on the command.
+    @returns (command, isHidden, isRecursive, ignoreErrors)
+    """
+
+    isHidden = False
+    isRecursive = False
+    ignoreErrors = False
+
+    while len(command):
+        c = command[0]
+        if c == '@' and not isHidden:
+            command = command[1:]
+            isHidden = True
+        elif c == '+' and not isRecursive:
+            command = command[1:]
+            isRecursive = True
+        elif c == '-' and not ignoreErrors:
+            command = command[1:]
+            ignoreErrors = True
+        elif c.isspace():
+            command = command[1:]
+        else:
+            break
+
+    return command, isHidden, isRecursive, ignoreErrors
+
 class Rule(object):
     """
     A rule contains a list of prerequisites and a list of commands. It may also
@@ -718,11 +746,14 @@ class Rule(object):
         for c in self.commands:
             cstring = c.resolve(v)
             for cline in splitcommand(cstring):
-                if cline[0:1] == '@':
-                    cline = cline[1:]
+                cline, isHidden, isRecursive, ignoreErrors = findmodifiers(cline)
                 if not len(cline) or cline.isspace():
                     continue
-                subprocess.check_call(cline, shell=True, env=env)
+                if not isHidden:
+                    print "%s $ %s" % (self.loc, cline)
+                r = subprocess.call(cline, shell=True, env=env)
+                if r != 0 and not ignoreErrors:
+                    raise DataError("command '%s' failed, return code was %s" % (cline, r), self.loc)
 
 class PatternRule(object):
     """
@@ -785,11 +816,17 @@ class PatternRule(object):
                               self.prerequisitesfor(stem=stem, dir=dir))
         v.set('*', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, stem)
 
+        env = makefile.getsubenvironment(v)
+
         for c in self.commands:
             cstring = c.resolve(v)
-            if cstring[0:1] == '@':
-                cstring = cstring[1:]
-            subprocess.check_call(cstring, shell=True)
+            for cline in splitcommand(cstring):
+                cline, isHidden, isRecursive, ignoreErrors = findmodifiers(cline)
+                if not len(cline) or cline.isspace():
+                    continue
+                r = subprocess.call(cline, shell=True, env=env)
+                if r != 0 and not ignoreErrors:
+                    raise DataError("command '%s' failed, return code was %s" % (cline, r), self.loc)
 
 class Makefile(object):
     def __init__(self, workdir=None, restarts=0, make=None, makeflags=None, makelevel=0):
@@ -859,6 +896,12 @@ class Makefile(object):
 
     def gettarget(self, target):
         assert isinstance(target, str)
+
+        assert target != '', "empty target?"
+
+        if target.find('*') != -1 or target.find('?') != -1 or target.find('[') != -1:
+            raise DataError("pymake doesn't implement wildcards in targets/prerequisites.")
+
         t = self._targets.get(target, None)
         if t is None:
             t = Target(target, self)
@@ -937,16 +980,16 @@ class Makefile(object):
                 strval = val.resolve(variables, [vname])
             env[vname] = strval
 
+        makeflags = ''
+
         flavor, source, val = variables.get('MAKEFLAGS')
-        if val is None:
-            makeflags = ''
-        else:
-            makeflags = '-' + val.resolve(variables, ['MAKEFLAGS'])
+        if val is not None:
+            flagsval = val.resolve(variables, ['MAKEFLAGS'])
+            if flagsval != '':
+                makeflags = '-' + flagsval
 
         makeflags += ' -- '
         makeflags += ' '.join((self.flagescape.sub(r'\\\1', o) for o in self.overrides))
-
-        print "makeflags: %r" % makeflags
 
         env['MAKEFLAGS'] = makeflags
 

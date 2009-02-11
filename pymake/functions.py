@@ -10,11 +10,11 @@ log = data.log
 class Function(object):
     """
     An object that represents a function call. This class is always subclassed
-    with the following two methods:
+    with the following methods and attributes:
 
-    def setup(self)
-        validates the number of arguments to a function
-        no return value
+    minargs = minimum # of arguments
+    maxargs = maximum # of arguments (0 means unlimited)
+
     def resolve(self, variables, setting)
         Calls the function
         @returns string
@@ -22,22 +22,25 @@ class Function(object):
     def __init__(self, loc):
         self._arguments = []
         self.loc = loc
+        assert self.minargs > 0
 
     def __getitem__(self, key):
         return self._arguments[key]
 
     def setup(self):
-        self.expectargs(self.expectedargs)
+        argc = len(self._arguments)
+
+        if argc < self.minargs:
+            raise data.DataError("Not enough arguments to function %s, requires %s" % (self.name, self.minargs), self.loc)
+
+        assert self.maxargs == 0 or argc <= self.maxargs, "Parser screwed up, gave us too many args"
 
     def append(self, arg):
         assert isinstance(arg, data.Expansion)
         self._arguments.append(arg)
 
-    def expectargs(self, argc):
-        if len(self._arguments) < argc:
-            raise data.DataError("Not enough arguments to function %s" % self.name, self.loc)
-        if len(self._arguments) > argc:
-            log.warning("%s: %s function takes three arguments, got %i" % (self.loc, self.name, len(self._arguments)))
+    def __len__(self):
+        return len(self._arguments)
 
 class VariableRef(Function):
     def __init__(self, loc, vname):
@@ -55,7 +58,7 @@ class VariableRef(Function):
 
         flavor, source, value = variables.get(vname)
         if value is None:
-            log.warning("%s: variable '%s' has no value" % (self.loc, vname))
+            log.info("%s: variable '%s' was not set" % (self.loc, vname))
             return ''
 
         return value.resolve(variables, setting + [vname])
@@ -81,7 +84,7 @@ class SubstitutionRef(Function):
 
         flavor, source, value = variables.get(vname)
         if value is None:
-            log.warning("%s: variable '%s' has no value" % (self.loc, vname))
+            log.info("%s: variable '%s' was not set" % (self.loc, vname))
             return ''
 
         evalue = value.resolve(variables, setting + [vname])
@@ -97,7 +100,8 @@ class SubstitutionRef(Function):
 
 class SubstFunction(Function):
     name = 'subst'
-    expectedargs = 3
+    minargs = 3
+    maxargs = 3
 
     def resolve(self, variables, setting):
         s = self._arguments[0].resolve(variables, setting)
@@ -107,7 +111,8 @@ class SubstFunction(Function):
 
 class PatSubstFunction(Function):
     name = 'patsubst'
-    expectedargs = 3
+    minargs = 3
+    maxargs = 3
 
     def resolve(self, variables, setting):
         s = self._arguments[0].resolve(variables, setting)
@@ -120,14 +125,16 @@ class PatSubstFunction(Function):
 
 class StripFunction(Function):
     name = 'strip'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         return ' '.join(data.splitwords(self._arguments[0].resolve(variables, setting)))
 
 class FindstringFunction(Function):
     name = 'findstring'
-    expectedargs = 2
+    minargs = 2
+    maxargs = 2
 
     def resolve(self, variables, setting):
         s = self._arguments[0].resolve(variables, setting)
@@ -138,7 +145,8 @@ class FindstringFunction(Function):
 
 class FilterFunction(Function):
     name = 'filter'
-    expectedargs = 2
+    minargs = 2
+    maxargs = 2
 
     def resolve(self, variables, setting):
         ps = self._arguments[0].resolve(variables, setting)
@@ -153,7 +161,8 @@ class FilterFunction(Function):
 
 class FilteroutFunction(Function):
     name = 'filter-out'
-    expectedargs = 2
+    minargs = 2
+    maxargs = 2
 
     def resolve(self, variables, setting):
         ps = self._arguments[0].resolve(variables, setting)
@@ -169,7 +178,8 @@ class FilteroutFunction(Function):
 
 class SortFunction(Function):
     name = 'sort'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         d = self._arguments[0].resolve(variables, setting)
@@ -179,7 +189,8 @@ class SortFunction(Function):
 
 class WordFunction(Function):
     name = 'word'
-    expectedargs = 2
+    minargs = 2
+    maxargs = 2
 
     def resolve(self, variables, setting):
         n = self._arguments[0].resolve(variables, setting)
@@ -192,7 +203,8 @@ class WordFunction(Function):
 
 class WordlistFunction(Function):
     name = 'wordlist'
-    expectedargs = 3
+    minargs = 3
+    maxargs = 3
 
     def resolve(self, variables, setting):
         nfrom = self._arguments[0].resolve(variables, setting)
@@ -212,14 +224,16 @@ class WordlistFunction(Function):
 
 class WordsFunction(Function):
     name = 'words'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         return str(len(data.splitwords(self._arguments[0].resolve(variables, setting))))
 
 class FirstWordFunction(Function):
     name = 'firstword'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         wl = data.splitwords(self._arguments[0].resolve(variables, setting))
@@ -229,7 +243,8 @@ class FirstWordFunction(Function):
 
 class LastWordFunction(Function):
     name = 'lastword'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         wl = data.splitwords(self._arguments[0].resolve(variables, setting))
@@ -250,7 +265,8 @@ def pathsplit(path, default='./'):
 
 class DirFunction(Function):
     name = 'dir'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         return ' '.join((pathsplit(path)[0]
@@ -258,7 +274,8 @@ class DirFunction(Function):
 
 class NotDirFunction(Function):
     name = 'notdir'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         return ' '.join((pathsplit(path)[1]
@@ -266,7 +283,8 @@ class NotDirFunction(Function):
 
 class SuffixFunction(Function):
     name = 'suffix'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     @staticmethod
     def suffixes(words):
@@ -281,7 +299,8 @@ class SuffixFunction(Function):
 
 class BasenameFunction(Function):
     name = 'basename'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     @staticmethod
     def basenames(words):
@@ -298,7 +317,8 @@ class BasenameFunction(Function):
 
 class AddSuffixFunction(Function):
     name = 'addprefix'
-    expectedargs = 2
+    minargs = 2
+    maxargs = 2
 
     def resolve(self, variables, setting):
         suffix = self._arguments[0].resolve(variables, setting)
@@ -307,7 +327,8 @@ class AddSuffixFunction(Function):
 
 class AddPrefixFunction(Function):
     name = 'addsuffix'
-    expectedargs = 2
+    minargs = 2
+    maxargs = 2
 
     def resolve(self, variables, setting):
         prefix = self._arguments[0].resolve(variables, setting)
@@ -316,7 +337,8 @@ class AddPrefixFunction(Function):
 
 class JoinFunction(Function):
     name = 'join'
-    expectedargs = 2
+    minargs = 2
+    maxargs = 2
 
     @staticmethod
     def iterjoin(l1, l2):
@@ -333,7 +355,8 @@ class JoinFunction(Function):
 
 class WildcardFunction(Function):
     name = 'wildcard'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         # TODO: will need work when we support -C without actually changing the OS cwd
@@ -342,7 +365,8 @@ class WildcardFunction(Function):
 
 class RealpathFunction(Function):
     name = 'realpath'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         # TODO: will need work when we support -C without actually changing the OS cwd
@@ -351,7 +375,8 @@ class RealpathFunction(Function):
 
 class AbspathFunction(Function):
     name = 'abspath'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         # TODO: will need work when we support -C without actually changing the OS cwd
@@ -360,13 +385,11 @@ class AbspathFunction(Function):
 
 class IfFunction(Function):
     name = 'if'
+    minargs = 1
+    maxargs = 3
 
     def setup(self):
-        if len(self._arguments) < 2:
-            raise data.DataError("Not enough arguments to function if", self.loc)
-        if len(self._arguments) > 3:
-            log.warning("%s: if function takes no more than three arguments, got %i" % (self.loc,))
-
+        Function.setup(self)
         self._arguments[0].lstrip()
         self._arguments[0].rstrip()
 
@@ -382,9 +405,8 @@ class IfFunction(Function):
 
 class OrFunction(Function):
     name = 'or'
-
-    def setup(self):
-        pass
+    minargs = 1
+    maxargs = 0
 
     def resolve(self, variables, setting):
         for arg in self._arguments:
@@ -396,9 +418,8 @@ class OrFunction(Function):
 
 class AndFunction(Function):
     name = 'and'
-
-    def setup(self):
-        pass
+    minargs = 1
+    maxargs = 0
 
     def resolve(self, variables, setting):
         r = ''
@@ -412,7 +433,8 @@ class AndFunction(Function):
 
 class ForEachFunction(Function):
     name = 'foreach'
-    expectedargs = 3
+    minargs = 3
+    maxargs = 3
 
     def resolve(self, variables, setting):
         vname = self._arguments[0].resolve(variables, setting)
@@ -431,9 +453,8 @@ class ForEachFunction(Function):
 
 class CallFunction(Function):
     name = 'call'
-
-    def setup(self):
-        assert len(self._arguments) > 0
+    minargs = 1
+    maxargs = 0
 
     def resolve(self, variables, setting):
         vname = self._arguments[0].resolve(variables, setting)
@@ -458,7 +479,8 @@ class CallFunction(Function):
 
 class ValueFunction(Function):
     name = 'value'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         varname = self._arguments[0].resolve(variables, setting)
@@ -471,14 +493,16 @@ class ValueFunction(Function):
 
 class EvalFunction(Function):
     name = 'eval'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         raise NotImplementedError('no eval yet')
 
 class OriginFunction(Function):
     name = 'origin'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         vname = self._arguments[0].resolve(variables, setting)
@@ -506,7 +530,8 @@ class OriginFunction(Function):
 
 class FlavorFunction(Function):
     name = 'flavor'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         varname = self._arguments[0].resolve(variables, setting)
@@ -524,7 +549,8 @@ class FlavorFunction(Function):
 
 class ShellFunction(Function):
     name = 'shell'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         cline = self._arguments[0].resolve(variables, setting)
@@ -541,7 +567,8 @@ class ShellFunction(Function):
 
 class ErrorFunction(Function):
     name = 'error'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         v = self._arguments[0].resolve(variables, setting)
@@ -549,7 +576,8 @@ class ErrorFunction(Function):
 
 class WarningFunction(Function):
     name = 'warning'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         v = self._arguments[0].resolve(variables, setting)
@@ -558,7 +586,8 @@ class WarningFunction(Function):
 
 class InfoFunction(Function):
     name = 'info'
-    expectedargs = 1
+    minargs = 1
+    maxargs = 1
 
     def resolve(self, variables, setting):
         v = self._arguments[0].resolve(variables, setting)
