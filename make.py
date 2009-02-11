@@ -95,9 +95,13 @@ if options.jobcount:
 
 logging.basicConfig(level=loglevel)
 
+
 if options.directory:
     log.info("Switching to directory: %s" % options.directory)
     os.chdir(options.directory)
+    
+print "make.py[%i]: Entering directory '%s'" % (makelevel, os.getcwd())
+sys.stdout.flush()
 
 if len(options.makefiles) == 0:
     if os.path.exists('Makefile'):
@@ -130,11 +134,13 @@ try:
             sys.exit(2)
         targets = [m.defaulttarget]
 
-    tlist = [m.gettarget(t) for t in targets]
-    for t in tlist:
-        t.resolvedeps(m, [], [])
-    for t in tlist:
-        t.make(m)
+    for t in targets:
+        m.gettarget(t).make(m, [], [])
+
 except (DataError, SyntaxError, subprocess.CalledProcessError), e:
     print e
+    print "make.py[%i]: Leaving directory '%s'" % (makelevel, os.getcwd())
+    sys.stdout.flush()
     sys.exit(2)
+
+print "make.py[%i]: Leaving directory '%s'" % (makelevel, os.getcwd())

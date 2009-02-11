@@ -400,7 +400,12 @@ class Target(object):
         self.rules = []
         self.variables = Variables(makefile.variables)
         self.explicit = False
-        self.resolved = False
+
+        # self.remade is a tri-state:
+        #   None - we haven't remade yet
+        #   True - we did something to remake ourself
+        #   False - we did nothing to remake ourself
+        self.remade = None
 
     def addrule(self, rule):
         if len(self.rules) and rule.doublecolon != self.rules[0].doublecolon:
@@ -492,7 +497,7 @@ class Target(object):
             for p in r.prerequisitesfor(self.target):
                 t = makefile.gettarget(p)
                 try:
-                    t.resolvedeps(makefile, targetstack, newrulestack)
+                    t.resolvedeps(makefile, targetstack, newrulestack, True)
                 except ResolutionError:
                     depfailed = p
                     break
@@ -511,7 +516,7 @@ class Target(object):
         "The number of rules with commands"
         return reduce(lambda i, rule: i + (len(rule.commands) > 0), self.rules, 0)
 
-    def resolvedeps(self, makefile, targetstack, rulestack, required=True):
+    def resolvedeps(self, makefile, targetstack, rulestack, required):
         """
         Resolve the actual path of this target, using vpath if necessary.
 
@@ -533,20 +538,11 @@ class Target(object):
             raise ResolutionError("Recursive dependency: %s -> %s" % (
                     " -> ".join(targetstack), self.target))
 
-        if self.resolved:
-            return
-
         log.info("Considering target '%s'" % (self.target,))
 
         targetstack = targetstack + [self.target]
 
         self.resolvevpath(makefile)
-
-        # self.remade is a tri-state:
-        #   None - we haven't remade yet
-        #   True - we did something to remake ourself
-        #   False - we did nothing to remake ourself
-        self.remade = None
 
         # Sanity-check our rules. If we're single-colon, only one rule should have commands
         ruleswithcommands = self.ruleswithcommands()
@@ -573,12 +569,14 @@ class Target(object):
         for r in self.rules:
             newrulestack = rulestack + [r]
             for d in r.prerequisitesfor(self.target):
-                makefile.gettarget(d).resolvedeps(makefile, targetstack, newrulestack)
+                dt = makefile.gettarget(d)
+                if dt.explicit:
+                    continue
+
+                dt.resolvedeps(makefile, targetstack, newrulestack, True)
 
         for v in makefile.getpatternvariablesfor(self.target):
             self.variables.merge(v)
-
-        self.resolved = True
 
     def resolvevpath(self, makefile):
         if self.vpathtarget is not None:
@@ -614,7 +612,7 @@ class Target(object):
         self.mtime = None
         self.vpathtarget = self.target
 
-    def make(self, makefile):
+    def make(self, makefile, targetstack, rulestack, required=True):
         """
         If we are out of date, make ourself.
 
@@ -622,15 +620,16 @@ class Target(object):
 
         @returns True if anything was done to remake this target
         """
-        assert self.vpathtarget is not None, "Target was never resolved!"
-
         if self.remade is not None:
             return self.remade
+
+        self.resolvedeps(makefile, targetstack, rulestack, required)
+        assert self.vpathtarget is not None, "Target was never resolved!"
 
         didanything = False
 
         if len(self.rules) == 0:
-            assert self.mtime is not None
+            pass
         elif self.isdoublecolon():
             for r in self.rules:
                 remake = False
@@ -639,7 +638,7 @@ class Target(object):
                     remake = True
                 for p in r.prerequisitesfor(self.target):
                     dep = makefile.gettarget(p)
-                    didanything = dep.make(makefile) or didanything
+                    didanything = dep.make(makefile, [], []) or didanything
                     if not remake and mtimeislater(dep.mtime, self.mtime):
                         log.info("Remaking %s using rule at %s because %s is newer." % (self.target, r.loc, p))
                         remake = True
@@ -660,7 +659,7 @@ class Target(object):
                     commandrule = r
                 for p in r.prerequisitesfor(self.target):
                     dep = makefile.gettarget(p)
-                    didanything = dep.make(makefile) or didanything
+                    didanything = dep.make(makefile, [], []) or didanything
                     if not remake and mtimeislater(dep.mtime, self.mtime):
                         log.info("Remaking %s because %s is newer" % (self.target, p))
                         remake = True
@@ -693,9 +692,6 @@ def setautomatic(v, name, plist):
 def setautomaticvariables(v, makefile, target, prerequisites):
     prtargets = [makefile.gettarget(p) for p in prerequisites]
     prall = [pt.vpathtarget for pt in prtargets]
-
-    for pt in prtargets:
-        print "%r: %s -> %r: %s" % (target.vpathtarget, target.realmtime, pt.vpathtarget, pt.mtime)
 
     proutofdate = [pt.vpathtarget for pt in withoutdups(prtargets)
                    if target.realmtime is None or mtimeislater(pt.mtime, target.realmtime)]
@@ -1000,17 +996,15 @@ class Makefile(object):
     def remakemakefiles(self):
         reparse = False
 
-        tlist = [self.gettarget(f) for f in self.included]
-        for t in tlist:
+        for f in self.included:
+            t = self.gettarget(f)
             t.explicit = True
-            t.resolvedeps(self, [], [], required=False)
-        for t in tlist:
-            if len(t.rules) > 0:
-                oldmtime = t.mtime
-                t.make(self)
-                if t.mtime != oldmtime:
-                    log.info("included makefile '%s' was remade" % t.target)
-                    reparse = True
+            t.resolvevpath(self)
+            oldmtime = t.mtime
+            t.make(self, [], [], required=False)
+            if t.mtime != oldmtime:
+                log.info("included makefile '%s' was remade" % t.target)
+                reparse = True
 
         return reparse
 
