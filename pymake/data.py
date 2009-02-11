@@ -228,7 +228,7 @@ class Variables(object):
     def set(self, name, flavor, source, value):
         assert flavor in (self.FLAVOR_RECURSIVE, self.FLAVOR_SIMPLE)
         assert source in (self.SOURCE_OVERRIDE, self.SOURCE_COMMANDLINE, self.SOURCE_MAKEFILE, self.SOURCE_ENVIRONMENT, self.SOURCE_AUTOMATIC)
-        assert isinstance(value, str)
+        assert isinstance(value, str), "expected str, got %s" % type(value)
 
         prevflavor, prevsource, prevvalue = self.get(name)
         if prevsource is not None and source > prevsource:
@@ -400,6 +400,7 @@ class Target(object):
         self.rules = []
         self.variables = Variables(makefile.variables)
         self.explicit = False
+        self.resolved = False
 
     def addrule(self, rule):
         if len(self.rules) and rule.doublecolon != self.rules[0].doublecolon:
@@ -436,56 +437,68 @@ class Target(object):
         """
         # The steps in the GNU make manual Implicit-Rule-Search.html are very detailed. I hope they can be trusted.
 
-        candidates = [r
-                      for r in makefile.implicitrules
-                      if r.matchfor(self.target) is not None and len(r.commands) > 0]
+        log.info("Trying to find implicit rule to make '%s'" % self.target)
 
-        if any((r.ismatchany() for r in candidates)):
-            candidates = [r
-                          for r in candidates
+        candidates = []
+        hasmatch = False
+        for r in makefile.implicitrules:
+            if r in rulestack:
+                log.info("%s: Avoiding implicit rule recursion" % (r.loc,))
+                continue
+
+            if not len(r.commands):
+                log.info("%s: Has no commands" % (r.loc,))
+                continue
+
+            if r.ismatchany():
+                candidates.append(r)
+            elif r.matchfor(self.target) is not None:
+                hasmatch = True
+                candidates.append(r)
+            
+        # If there are non match-any candidates, remove nonterminal match-anything rules
+        if hasmatch:
+            candidates = [r for r in candidates
                           if (not r.ismatchany()) or r.doublecolon]
 
-        for r in candidates:
-            newrulestack = rulestack + [r]
+        newcandidates = []
 
-            depfailed = False
+        for r in candidates:
+            depfailed = None
             for p in r.prerequisitesfor(self.target):
                 t = makefile.gettarget(p)
-                try:
-                    t.resolvedeps(makefile, targetstack, newrulestack)
-                except ResolutionError:
-                    depfailed = True
-                    break
-                if t.mtime is None and not t.explicit:
-                    depfailed = True
+                t.resolvevpath(makefile)
+                if not t.explicit and t.mtime is None:
+                    depfailed = p
                     break
 
-            if depfailed:
+            if depfailed is not None:
+                if r.doublecolon:
+                    log.info("  Rule at %s doesn't match: prerequisite '%s' not mentioned and doesn't exist." % (r.loc, depfailed))
+                else:
+                    newcandidates.append(r)
                 continue
 
             log.info("Found implicit rule at %s for target '%s'" % (r.loc, self.target))
             self.rules.append(r)
             return
 
-        # eliminate terminal rules
-        candidates = [r for r in candidates
-                      if not r.doublecolon]
+        # Try again, but this time with chaining and without terminal (double-colon) rules
 
-        # Try again, but this time with chaining and love
-
-        for r in candidates:
+        for r in newcandidates:
             newrulestack = rulestack + [r]
 
-            depfailed = False
+            depfailed = None
             for p in r.prerequisitesfor(self.target):
                 t = makefile.gettarget(p)
                 try:
                     t.resolvedeps(makefile, targetstack, newrulestack)
                 except ResolutionError:
-                    depfailed = True
+                    depfailed = p
                     break
 
-            if depfailed:
+            if depfailed is not None:
+                log.info("  Rule at %s doesn't match: prerequisite '%s' could not be made." % (r.loc, depfailed))
                 continue
 
             log.info("Found implicit rule at %s for target '%s'" % (r.loc, self.target))
@@ -520,6 +533,11 @@ class Target(object):
             raise ResolutionError("Recursive dependency: %s -> %s" % (
                     " -> ".join(targetstack), self.target))
 
+        if self.resolved:
+            return
+
+        info.log("Considering target '%s'" % (self.target,))
+
         targetstack = targetstack + [self.target]
 
         self.resolvevpath(makefile)
@@ -539,7 +557,7 @@ class Target(object):
                 raise DataError("Target '%s' has multiple rules with commands." % self.target)
 
         if ruleswithcommands == 0:
-            found = self.resolveimplicitrule(makefile, targetstack, rulestack)
+            self.resolveimplicitrule(makefile, targetstack, rulestack)
 
         # If a target is mentioned, but doesn't exist, has no commands and no
         # prerequisites, it is special and exists just to say that targets which
@@ -560,26 +578,31 @@ class Target(object):
         for v in makefile.getpatternvariablesfor(self.target):
             self.variables.merge(v)
 
+        self.resolved = True
+
     def resolvevpath(self, makefile):
+        if self.vpathtarget is not None:
+            return
+
         if self.isphony(makefile):
             self.vpathtarget = self.target
             self.mtime = None
+            return
 
-        if self.vpathtarget is None:
-            search = [self.target]
-            if not os.path.isabs(self.target):
-                search += [os.path.join(dir, self.target)
-                           for dir in makefile.vpath]
+        search = [self.target]
+        if not os.path.isabs(self.target):
+            search += [os.path.join(dir, self.target)
+                       for dir in makefile.vpath]
 
-            for t in search:
-                mtime = getmtime(t)
-                if mtime is not None:
-                    self.vpathtarget = t
-                    self.mtime = mtime
-                    return
+        for t in search:
+            mtime = getmtime(t)
+            if mtime is not None:
+                self.vpathtarget = t
+                self.mtime = mtime
+                return
 
-            self.vpathtarget = self.target
-            self.mtime = None
+        self.vpathtarget = self.target
+        self.mtime = None
         
     def remake(self):
         """
@@ -800,11 +823,12 @@ class PatternRule(object):
 
         return None
 
-    def prerequisitesfor(self, t=None, dir=None, stem=None):
-        if stem is None:
-            dir, stem = self.matchfor(t)
-
+    def prerequisitesforstem(self, dir, stem):
         return [p.resolve(dir, stem) for p in self.prerequisites]
+
+    def prerequisitesfor(self, t):
+        dir, stem = self.matchfor(t)
+        return self.prerequisitesforstem(dir, stem)
 
     def execute(self, target, makefile):
         assert isinstance(target, Target)
@@ -813,7 +837,7 @@ class PatternRule(object):
 
         v = Variables(parent=target.variables)
         setautomaticvariables(v, makefile, target,
-                              self.prerequisitesfor(stem=stem, dir=dir))
+                              self.prerequisitesforstem(dir, stem))
         v.set('*', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, stem)
 
         env = makefile.getsubenvironment(v)
