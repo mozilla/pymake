@@ -68,7 +68,7 @@ op.add_option('-f', '--file', '--makefile',
               action='append',
               dest='makefiles',
               default=[])
-op.add_option('-d', '--verbose',
+op.add_option('-d',
               action="store_true",
               dest="verbose", default=False)
 op.add_option('-C', '--directory',
@@ -87,7 +87,7 @@ makeflags = ''
 loglevel = logging.WARNING
 if options.verbose:
     loglevel = logging.DEBUG
-    makeflags += 'v'
+    makeflags += 'd'
 
 if options.jobcount:
     log.info("pymake doesn't implement -j yet. ignoring")
