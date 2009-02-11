@@ -536,7 +536,7 @@ class Target(object):
         if self.resolved:
             return
 
-        info.log("Considering target '%s'" % (self.target,))
+        log.info("Considering target '%s'" % (self.target,))
 
         targetstack = targetstack + [self.target]
 
@@ -606,8 +606,11 @@ class Target(object):
         
     def remake(self):
         """
-        When we remake ourself, we need to reset our mtime and vpathtarget
+        When we remake ourself, we need to reset our mtime and vpathtarget.
+
+        We store our old mtime so that $? can calculate out-of-date prerequisites.
         """
+        self.realmtime = self.mtime
         self.mtime = None
         self.vpathtarget = self.target
 
@@ -671,22 +674,39 @@ class Target(object):
         self.remade = didanything
         return didanything
 
+def dirpart(p):
+    d, s, f = p.rpartition('/')
+    if d == '':
+        return '.'
+
+    return d
+
+def filepart(p):
+    d, s, f = p.rpartition('/')
+    return f
+
+def setautomatic(v, name, plist):
+    v.set(name, Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, ' '.join(plist))
+    v.set(name + 'D', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, ' '.join((dirpart(p) for p in plist)))
+    v.set(name + 'F', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, ' '.join((filepart(p) for p in plist)))
+
 def setautomaticvariables(v, makefile, target, prerequisites):
-    vprereqs = [makefile.gettarget(p).vpathtarget
-                for p in prerequisites]
+    prtargets = [makefile.gettarget(p) for p in prerequisites]
+    prall = [pt.vpathtarget for pt in prtargets]
 
-    v.set('@', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, target.vpathtarget)
+    for pt in prtargets:
+        print "%r: %s -> %r: %s" % (target.vpathtarget, target.realmtime, pt.vpathtarget, pt.mtime)
 
-    if len(vprereqs):
-        v.set('<', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, vprereqs[0])
+    proutofdate = [pt.vpathtarget for pt in withoutdups(prtargets)
+                   if target.realmtime is None or mtimeislater(pt.mtime, target.realmtime)]
+    
+    setautomatic(v, '@', [target.vpathtarget])
+    if len(prall):
+        setautomatic(v, '<', [prall[0]])
 
-    # TODO '?'
-    v.set('^', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
-          ' '.join(withoutdups(vprereqs)))
-    v.set('+', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC,
-          ' '.join(vprereqs))
-    # TODO '|'
-    # TODO all the D and F variants
+    setautomatic(v, '?', proutofdate)
+    setautomatic(v, '^', list(withoutdups(prall)))
+    setautomatic(v, '+', prall)
 
 def splitcommand(command):
     """
@@ -838,7 +858,7 @@ class PatternRule(object):
         v = Variables(parent=target.variables)
         setautomaticvariables(v, makefile, target,
                               self.prerequisitesforstem(dir, stem))
-        v.set('*', Variables.FLAVOR_SIMPLE, Variables.SOURCE_AUTOMATIC, stem)
+        setautomatic(v, '*', [stem])
 
         env = makefile.getsubenvironment(v)
 
@@ -920,6 +940,8 @@ class Makefile(object):
 
     def gettarget(self, target):
         assert isinstance(target, str)
+
+        target = target.rstrip('/')
 
         assert target != '', "empty target?"
 
