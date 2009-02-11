@@ -40,6 +40,18 @@ else
 BAZ3FOUND = true
 endif
 
+ifdef RANDOM
+CONTINUATION = \
+else           \
+endif
+endif
+
+TESTSET =
+
+ifdef TESTSET
+$(error TESTSET was not set)
+endif
+
 TESTEMPTY = $(NULL)
 ifndef TESTEMPTY
 $(error TEST-FAIL TESTEMPTY was probably expanded!)

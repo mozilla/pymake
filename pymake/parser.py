@@ -555,6 +555,8 @@ def parsestream(fd, filename, makefile):
 
             if any((not c.active for c in condstack)):
                 log.info('%s: skipping line because of active conditions' % (d.getloc(0),))
+                for c in itermakefilechars(d, offset):
+                    pass
                 continue
 
             if kword == 'endef':
