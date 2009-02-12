@@ -898,12 +898,16 @@ class PatternRule(object):
             if matchany:
                 if skipsinglecolonmatchany and not self.doublecolon:
                     continue
-                stem = file
-                yield PatternRuleInstance(self, dir, stem, True)
+
+                yield PatternRuleInstance(self, dir, file, True)
             else:
-                stem = p.match(file)
+                stem = p.match(dir + file)
                 if stem is not None:
-                    yield PatternRuleInstance(self, dir, stem, False)
+                    yield PatternRuleInstance(self, '', stem, False)
+                else:
+                    stem = p.match(file)
+                    if stem is not None:
+                        yield PatternRuleInstance(self, dir, stem, False)
 
     def prerequisitesforstem(self, dir, stem):
         return [p.resolve(dir, stem) for p in self.prerequisites]
