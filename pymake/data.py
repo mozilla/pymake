@@ -75,9 +75,10 @@ class Expansion(object):
     A representation of expanded data, such as that for a recursively-expanded variable, a command, etc.
     """
 
-    def __init__(self):
+    def __init__(self, loc=None):
         # Each element is either a string or a function
         self._elements = []
+        self.loc = loc
 
     @staticmethod
     def fromstring(s):
@@ -827,10 +828,10 @@ class Rule(object):
                 if not len(cline) or cline.isspace():
                     continue
                 if not isHidden:
-                    print "%s $ %s" % (self.loc, cline)
+                    print "%s $ %s" % (c.loc, cline)
                 r = subprocess.call(cline, shell=True, env=env)
                 if r != 0 and not ignoreErrors:
-                    raise DataError("command '%s' failed, return code was %s" % (cline, r), self.loc)
+                    raise DataError("command '%s' failed, return code was %s" % (cline, r), c.loc)
 
 class PatternRuleInstance(object):
     """
@@ -928,9 +929,11 @@ class PatternRule(object):
                 cline, isHidden, isRecursive, ignoreErrors = findmodifiers(cline)
                 if not len(cline) or cline.isspace():
                     continue
+                if not isHidden:
+                    print "%s $ %s" % (c.loc, cline)
                 r = subprocess.call(cline, shell=True, env=env)
                 if r != 0 and not ignoreErrors:
-                    raise DataError("command '%s' failed, return code was %s" % (cline, r), self.loc)
+                    raise DataError("command '%s' failed, return code was %s" % (cline, r), c.loc)
 
 class Makefile(object):
     def __init__(self, workdir=None, restarts=0, make=None, makeflags=None, makelevel=0):

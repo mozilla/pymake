@@ -125,6 +125,9 @@ class Data(object):
         if offset is None or offset >= len(self.data):
             offset = len(self.data) - 1
 
+        if offset == -1:
+            offset = 0
+
         begin, loc = findlast(lambda (o, l): o <= offset, self._locs)
         return loc + self.data[begin:offset]
 
@@ -782,7 +785,8 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
     assert callable(iterfunc)
 
     stack = [
-        ParseStackFrame(PARSESTATE_TOPLEVEL, data.Expansion(), stopon, closebrace=None)
+        ParseStackFrame(PARSESTATE_TOPLEVEL, data.Expansion(loc=d.getloc(startat)),
+                        stopon, closebrace=None)
     ]
 
     di = iterfunc(d, startat)
