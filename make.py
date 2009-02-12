@@ -77,6 +77,8 @@ op.add_option('-v', '--version',
               action="callback", callback=version)
 op.add_option('-j', '--jobs', type="int",
               dest="jobcount", default=1)
+op.add_option('--parse-profile',
+              dest="parseprofile", default=None)
 
 arglist = sys.argv[1:] + parsemakeflags()
 
@@ -111,25 +113,33 @@ if len(options.makefiles) == 0:
         sys.exit(2)
 
 try:
-    i = 0
-    while True:
-        m = Makefile(restarts=i, make='%s %s' % (sys.executable, sys.argv[0]),
-                     makeflags=makeflags, makelevel=makelevel)
+    def parse():
+        i = 0
 
-        starttime = time.time()
-        targets = parsecommandlineargs(m, arguments)
-        for f in options.makefiles:
-            m.include(f)
+        while True:
+            m = Makefile(restarts=i, make='%s %s' % (sys.executable, sys.argv[0]),
+                         makeflags=makeflags, makelevel=makelevel)
 
-        log.info("Parsing[%i] took %f seconds" % (i, time.time() - starttime,))
+            starttime = time.time()
+            targets = parsecommandlineargs(m, arguments)
+            for f in options.makefiles:
+                m.include(f)
 
-        m.finishparsing()
-        if m.remakemakefiles():
-            log.info("restarting makefile parsing")
-            i += 1
-            continue
+            log.info("Parsing[%i] took %f seconds" % (i, time.time() - starttime,))
 
-        break
+            m.finishparsing()
+            if m.remakemakefiles():
+                log.info("restarting makefile parsing")
+                i += 1
+                continue
+
+            return m, targets
+
+    if options.parseprofile is None:
+        m, targets = parse()
+    else:
+        import cProfile
+        cProfile.run("m, targets = parse()", options.parseprofile)
 
     if len(targets) == 0:
         if m.defaulttarget is None:
