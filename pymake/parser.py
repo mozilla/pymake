@@ -334,7 +334,8 @@ def iterlines(fd):
         yield (lineno, line)
 
 def setvariable(resolvevariables, setvariables, vname, token, d, offset,
-                iterfunc=itermakefilechars, source=data.Variables.SOURCE_MAKEFILE):
+                iterfunc=itermakefilechars, source=data.Variables.SOURCE_MAKEFILE,
+                skipwhitespace=True):
     """
     Parse what's left in a data iterator di into a variable.
     """
@@ -348,23 +349,31 @@ def setvariable(resolvevariables, setvariables, vname, token, d, offset,
 
     if token == '+=':
         val = ''.join((c for c, o, l in iterfunc(d, offset)))
+        if skipwhitespace:
+            val = val.lstrip()
         setvariables.append(vname, source, val, resolvevariables)
         return
 
     if token == '?=':
         flavor = data.Variables.FLAVOR_RECURSIVE
         val = ''.join((c for c, o, l in iterfunc(d, offset)))
+        if skipwhitespace:
+            val = val.lstrip()
         oldflavor, oldsource, oldval = setvariables.get(vname, expand=False)
         if oldval is not None:
             return
     elif token == '=':
         flavor = data.Variables.FLAVOR_RECURSIVE
         val = ''.join((c for c, o, l in iterfunc(d, offset)))
+        if skipwhitespace:
+            val = val.lstrip()
     else:
         assert token == ':='
 
         flavor = data.Variables.FLAVOR_SIMPLE
         e, t, o = parsemakesyntax(d, offset, (), itermakefilechars)
+        if skipwhitespace:
+            e.lstrip()
         val = e.resolve(resolvevariables)
         
     setvariables.set(vname, flavor, source, val)
@@ -407,6 +416,8 @@ def ifeq(d, offset, makefile):
         arg1, t, offset = parsemakesyntax(d, offset, (',',), itermakefilechars)
         if t is None:
             raise SyntaxError("Expected two arguments in conditional", d.getloc(offset))
+
+        arg1.rstrip()
 
         offset = d.skipwhitespace(offset)
         arg2, t, offset = parsemakesyntax(d, offset, (')',), itermakefilechars)
@@ -570,7 +581,8 @@ def parsestream(fd, filename, makefile):
 
                 setvariable(makefile.variables, makefile.variables,
                             e.resolve(makefile.variables),
-                            '=', d, 0, iterdefinechars)
+                            '=', d, 0, iterdefinechars,
+                            skipwhitespace=False)
 
                 continue
 
@@ -590,7 +602,6 @@ def parsestream(fd, filename, makefile):
                     raise SyntaxError("Malformed override directive, need =", d.getloc(offset))
 
                 vname = e.resolve(makefile.variables)
-                offset = d.skipwhitespace(offset)
                 setvariable(makefile.variables, makefile.variables,
                             vname, token, d, offset,
                             source=data.Variables.SOURCE_OVERRIDE)
@@ -607,7 +618,6 @@ def parsestream(fd, filename, makefile):
                         raise SyntaxError("Exporting all variables is not supported", d.getloc(offset))
                 else:
                     vlist = [vars]
-                    offset = d.skipwhitespace(offset)
                     setvariable(makefile.variables, makefile.variables,
                                 vars, token, d, offset)
 
@@ -635,9 +645,6 @@ def parsestream(fd, filename, makefile):
                 e.lstrip()
                 e.rstrip()
                 vname = e.resolve(makefile.variables)
-
-                offset = d.skipwhitespace(offset)
-
                 setvariable(makefile.variables, makefile.variables,
                             vname, token, d, offset)
             else:
@@ -684,8 +691,6 @@ def parsestream(fd, filename, makefile):
                     e.lstrip()
                     e.rstrip()
                     vname = e.resolve(makefile.variables)
-
-                    offset = d.skipwhitespace(offset)
                     if ispattern:
                         for target in targets:
                             setvariable(makefile.variables,

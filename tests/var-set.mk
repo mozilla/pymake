@@ -25,6 +25,9 @@ all: OBASIC += allmore
 
 RECVAR = blimey
 
+TESTEMPTY = \
+	$(NULL)
+
 all: other
 	test "$(TEST2)" = "val"
 	test '$(value TEST2)' = '$$(TES T)'
@@ -32,6 +35,7 @@ all: other
 	test "$(IMMVAR)" = "bloo foo var baz  valall"
 	test "$(UNSET)" = "more"
 	test "$(OBASIC)" = "oval"
+	test "$(TESTEMPTY)" = ""
 	@echo TEST-PASS
 
 OVAR = oval

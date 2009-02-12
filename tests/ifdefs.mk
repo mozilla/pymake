@@ -57,6 +57,32 @@ ifndef TESTEMPTY
 $(error TEST-FAIL TESTEMPTY was probably expanded!)
 endif
 
+# ifneq ( a,a)
+# $(error Arguments to ifeq should be stripped before evaluation)
+# endif
+
+XSPACE = x # trick
+
+ifneq ($(NULL),$(NULL))
+$(error TEST-FAIL ifneq)
+endif
+
+ifneq (x , x)
+$(error argument-stripping1)
+endif
+
+ifeq ( x,x )
+$(error argument-stripping2)
+endif
+
+ifneq ($(XSPACE), x )
+$(error argument-stripping3)
+endif
+
+ifeq 'x ' ' x'
+$(error TEST-FAIL argument-stripping4)
+endif
+
 all:
 	test $(FOOFOUND) = true   # FOOFOUND
 	test $(BARFOUND) = false  # BARFOUND
