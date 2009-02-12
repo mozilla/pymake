@@ -52,7 +52,7 @@ host_prog: subd/host_test.out subd/host_test.out2
 
 %.out: %.in dummy
 	test "$@" = "subd/test.out"
-	test "$*" = "subd/test"
+	test "$*" = "subd/test"              # *
 	test "$<" = "src/subd/test.in"       # <
 	test "$^" = "src/subd/test.in dummy" # ^
 	test "$?" = "src/subd/test.in"       # ?

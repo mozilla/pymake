@@ -4,8 +4,7 @@
 all: foo.ooo
 	@echo TEST-FAIL
 
-%.ooo: %.ccc
-	cp $< %@
+%.ooo:
 
 # this match-anything pattern should not apply to %.ooo
 %: %.test

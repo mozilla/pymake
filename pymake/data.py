@@ -384,6 +384,13 @@ class Pattern(object):
     def __repr__(self):
         return "<Pattern with data %r>" % (self.data,)
 
+    backre = re.compile(r'[%\\]')
+    def __str__(self):
+        if not self.ispattern:
+            return self.backre.sub(r'\\\1', self.data[0])
+
+        return self.backre.sub(r'\\\1', self.data[0]) + '%' + self.data[1]
+
 class Target(object):
     """
     An actual (non-pattern) target.
@@ -410,17 +417,15 @@ class Target(object):
         self.remade = None
 
     def addrule(self, rule):
+        assert isinstance(rule, (Rule, PatternRuleInstance))
         if len(self.rules) and rule.doublecolon != self.rules[0].doublecolon:
-            # TODO: better location for this error
-            raise DataError("Cannot have single- and double-colon rules for the same target.")
+            raise DataError("Cannot have single- and double-colon rules for the same target. Prior rule location: %s" % self.rules[0].loc, rule.loc)
 
-        if isinstance(rule, PatternRule):
-            if len(rule.targetpatterns) != 1:
-                # TODO: better location
-                raise DataError("Static pattern rules must only have one target pattern")
-            if rule.targetpatterns[0].match(self.target) is None:
-                # TODO: better location
-                raise DataError("Static pattern rule doesn't match target")
+        if isinstance(rule, PatternRuleInstance):
+            if len(rule.prule.targetpatterns) != 1:
+                raise DataError("Static pattern rules must only have one target pattern", rule.prule.loc)
+            if rule.prule.targetpatterns[0].match(self.target) is None:
+                raise DataError("Static pattern rule doesn't match target '%s'" % self.target, rule.loc)
 
         self.rules.append(rule)
 
@@ -446,8 +451,12 @@ class Target(object):
 
         log.info("Trying to find implicit rule to make '%s'" % self.target)
 
-        candidates = []
-        hasmatch = False
+        dir, s, file = self.target.rpartition('/')
+        dir = dir + s
+
+        candidates = [] # list of PatternRuleInstance
+
+        hasmatch = any((r.hasmatch(file) for r in makefile.implicitrules))
         for r in makefile.implicitrules:
             if r in rulestack:
                 log.info("%s: Avoiding implicit rule recursion" % (r.loc,))
@@ -457,22 +466,14 @@ class Target(object):
                 log.info("%s: Has no commands" % (r.loc,))
                 continue
 
-            if r.ismatchany():
-                candidates.append(r)
-            elif r.matchfor(self.target) is not None:
-                hasmatch = True
-                candidates.append(r)
+            for ri in r.matchesfor(dir, file, hasmatch):
+                candidates.append(ri)
             
-        # If there are non match-any candidates, remove nonterminal match-anything rules
-        if hasmatch:
-            candidates = [r for r in candidates
-                          if (not r.ismatchany()) or r.doublecolon]
-
         newcandidates = []
 
         for r in candidates:
             depfailed = None
-            for p in r.prerequisitesfor(self.target):
+            for p in r.prerequisites:
                 t = makefile.gettarget(p)
                 t.resolvevpath(makefile)
                 if not t.explicit and t.mtime is None:
@@ -481,7 +482,7 @@ class Target(object):
 
             if depfailed is not None:
                 if r.doublecolon:
-                    log.info("  Rule at %s doesn't match: prerequisite '%s' not mentioned and doesn't exist." % (r.loc, depfailed))
+                    log.info("  Terminal rule at %s doesn't match: prerequisite '%s' not mentioned and doesn't exist." % (r.loc, depfailed))
                 else:
                     newcandidates.append(r)
                 continue
@@ -493,10 +494,10 @@ class Target(object):
         # Try again, but this time with chaining and without terminal (double-colon) rules
 
         for r in newcandidates:
-            newrulestack = rulestack + [r]
+            newrulestack = rulestack + [r.prule]
 
             depfailed = None
-            for p in r.prerequisitesfor(self.target):
+            for p in r.prerequisites:
                 t = makefile.gettarget(p)
                 try:
                     t.resolvedeps(makefile, targetstack, newrulestack, True)
@@ -562,7 +563,7 @@ class Target(object):
         # depend on it are always out of date. This is like .FORCE but more
         # compatible with other makes.
         # Otherwise, we don't know how to make it.
-        if not len(self.rules) and self.mtime is None and not any((len(rule.prerequisitesfor(self.target)) > 0
+        if not len(self.rules) and self.mtime is None and not any((len(rule.prerequisites) > 0
                                                                    for rule in self.rules)):
             if required:
                 raise ResolutionError("No rule to make target '%s' needed by %s" % (self.target,
@@ -570,7 +571,7 @@ class Target(object):
 
         for r in self.rules:
             newrulestack = rulestack + [r]
-            for d in r.prerequisitesfor(self.target):
+            for d in r.prerequisites:
                 dt = makefile.gettarget(d)
                 if dt.explicit:
                     continue
@@ -664,7 +665,7 @@ class Target(object):
                 if self.mtime is None:
                     log.info("Remaking %s using rule at %s because it doesn't exist or is a forced target" % (self.target, r.loc))
                     remake = True
-                for p in r.prerequisitesfor(self.target):
+                for p in r.prerequisites:
                     dep = makefile.gettarget(p)
                     didanything = dep.make(makefile, [], []) or didanything
                     if not remake and mtimeislater(dep.mtime, self.mtime):
@@ -685,7 +686,7 @@ class Target(object):
                 if len(r.commands):
                     assert commandrule is None, "Two command rules for a single-colon target?"
                     commandrule = r
-                for p in r.prerequisitesfor(self.target):
+                for p in r.prerequisites:
                     dep = makefile.gettarget(p)
                     didanything = dep.make(makefile, [], []) or didanything
                     if not remake and mtimeislater(dep.mtime, self.mtime):
@@ -798,9 +799,6 @@ class Rule(object):
         assert(isinstance(c, Expansion))
         self.commands.append(c)
 
-    def prerequisitesfor(self, t):
-        return self.prerequisites
-
     def execute(self, target, makefile):
         assert isinstance(target, Target)
 
@@ -822,6 +820,34 @@ class Rule(object):
                 if r != 0 and not ignoreErrors:
                     raise DataError("command '%s' failed, return code was %s" % (cline, r), self.loc)
 
+class PatternRuleInstance(object):
+    """
+    This represents a pattern rule instance for a particular target. It has the same API as Rule, but
+    different internals, forwarding most information on to the PatternRule.
+    """
+    def __init__(self, prule, dir, stem, ismatchany):
+        assert isinstance(prule, PatternRule)
+
+        self.dir = dir
+        self.stem = stem
+        self.prule = prule
+        self.prerequisites = prule.prerequisitesforstem(dir, stem)
+        self.doublecolon = prule.doublecolon
+        self.loc = prule.loc
+        self.ismatchany = ismatchany
+        self.commands = prule.commands
+
+    def execute(self, target, makefile):
+        assert isinstance(target, Target)
+
+        self.prule.execute(target, makefile, self.dir, self.stem)
+
+    def __str__(self):
+        return "Pattern rule at %s with stem '%s', matchany: %s doublecolon: %s" % (self.loc,
+                                                                                    self.dir + self.stem,
+                                                                                    self.ismatchany,
+                                                                                    self.doublecolon)
+
 class PatternRule(object):
     """
     An implicit rule or static pattern rule containing target patterns, prerequisite patterns,
@@ -842,47 +868,41 @@ class PatternRule(object):
     def ismatchany(self):
         return any((t.ismatchany() for t in self.targetpatterns))
 
-    def matchfor(self, t):
+    def hasmatch(self, file):
+        for p in self.targetpatterns:
+            if p.match(file) is not None:
+                return True
+
+        return False
+
+    def matchesfor(self, dir, file, skipsinglecolonmatchany):
         """
-        Determine whether and how this rule might match target t.
-        @returns a tuple (dir, stem) if this rule matches, or None
+        Determine all the target patterns of this rule that might match target t.
+        @yields a PatternRuleInstance for each.
         """
 
         for p in self.targetpatterns:
-            stem = p.match(t)
-            if stem is not None:
-                return ('', stem)
-
-        dir, s, path = t.rpartition('/')
-        if s == '':
-            return None
-
-        for p in self.targetpatterns:
-            if p.hasslash():
-                continue
-
-            stem = p.match(path)
-            if stem is not None:
-                return (dir + s, stem)
-
-        return None
+            matchany = p.ismatchany()
+            if matchany:
+                if skipsinglecolonmatchany and not self.doublecolon:
+                    continue
+                stem = file
+                yield PatternRuleInstance(self, dir, stem, True)
+            else:
+                stem = p.match(file)
+                if stem is not None:
+                    yield PatternRuleInstance(self, dir, stem, False)
 
     def prerequisitesforstem(self, dir, stem):
         return [p.resolve(dir, stem) for p in self.prerequisites]
 
-    def prerequisitesfor(self, t):
-        dir, stem = self.matchfor(t)
-        return self.prerequisitesforstem(dir, stem)
-
-    def execute(self, target, makefile):
+    def execute(self, target, makefile, dir, stem):
         assert isinstance(target, Target)
-
-        dir, stem = self.matchfor(target.target)
 
         v = Variables(parent=target.variables)
         setautomaticvariables(v, makefile, target,
                               self.prerequisitesforstem(dir, stem))
-        setautomatic(v, '*', [stem])
+        setautomatic(v, '*', [dir + stem])
 
         env = makefile.getsubenvironment(v)
 
@@ -1008,7 +1028,7 @@ class Makefile(object):
         for t in targets:
             t.explicit = True
             for r in t.rules:
-                for p in r.prerequisitesfor(t.target):
+                for p in r.prerequisites:
                     self.gettarget(p).explicit = True
 
     def include(self, path, required=True):

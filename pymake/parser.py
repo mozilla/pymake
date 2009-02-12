@@ -720,8 +720,11 @@ def parsestream(fd, filename, makefile):
                     e, token, offset = parsemakesyntax(d, offset, (';',), itermakefilechars)
                     prereqs = map(data.Pattern, data.splitwords(e.resolve(makefile.variables)))
                     currule = data.PatternRule([pattern], prereqs, doublecolon, loc=d.getloc(0))
+
                     for t in targets:
-                        makefile.gettarget(t.gettarget()).addrule(currule)
+                        tname = t.gettarget()
+                        pinstance = data.PatternRuleInstance(currule, '', tname, pattern.ismatchany())
+                        makefile.gettarget(tname).addrule(pinstance)
 
                     if len(targets):
                         makefile.foundtarget(targets[0].gettarget())
