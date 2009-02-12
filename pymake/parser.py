@@ -159,15 +159,15 @@ class Data(object):
 
 def iterdata(d, offset):
     """
-    A Data iterator yielding (char, offset, location) without any escaping.
+    A Data iterator yielding (char, offset) without any escaping.
     """
     while offset < len(d.data):
-        yield d.data[offset], offset, d.getloc(offset)
+        yield d.data[offset], offset
         offset += 1
 
 def itermakefilechars(d, offset):
     """
-    A Data generator yielding (char, offset, location). It will escape comments and newline
+    A Data generator yielding (char, offset). It will escape comments and newline
     continuations according to makefile syntax rules.
     """
 
@@ -192,24 +192,24 @@ def itermakefilechars(d, offset):
             c2 = d.data[offset + 1]
             if c2 == '#':
                 offset += 1
-                yield '#', offset, d.getloc(offset)
+                yield '#', offset
                 offset += 1
             elif d[offset:offset + 3] == '\\\\#':
                 # see escape-chars.mk VARAWFUL
                 offset += 1
-                yield '\\', offset, d.getloc(offset)
+                yield '\\', offset
                 offset += 1
             elif c2 == '\n':
-                yield ' ', offset, d.getloc(offset)
+                yield ' ', offset
                 d.readline()
                 offset = d.skipwhitespace(offset + 2)
             elif c2 == '\\':
-                yield '\\', offset, d.getloc(offset)
+                yield '\\', offset
                 offset += 1
-                yield '\\', offset, d.getloc(offset)
+                yield '\\', offset
                 offset += 1
             else:
-                yield c, offset, d.getloc(offset)
+                yield c, offset
                 offset += 1
         else:
             if c.isspace():
@@ -218,12 +218,12 @@ def itermakefilechars(d, offset):
                     offset = o
                     continue
 
-            yield c, offset, d.getloc(offset)
+            yield c, offset
             offset += 1
 
 def itercommandchars(d, offset):
     """
-    A Data generator yielding (char, offset, location). It will process escapes and newlines
+    A Data generator yielding (char, offset). It will process escapes and newlines
     according to command parsing rules.
     """
 
@@ -233,7 +233,7 @@ def itercommandchars(d, offset):
             assert offset == len(d.data) - 1
             return
 
-        yield c, offset, d.getloc(offset)
+        yield c, offset
         offset += 1
 
         if c == '\\':
@@ -241,7 +241,7 @@ def itercommandchars(d, offset):
                 return
 
             c = d.data[offset]
-            yield c, offset, d.getloc(offset)
+            yield c, offset
 
             offset += 1
 
@@ -253,7 +253,7 @@ def itercommandchars(d, offset):
 
 def iterdefinechars(d, offset):
     """
-    A Data generator yielding (char, offset, location). It will process define/endef
+    A Data generator yielding (char, offset). It will process define/endef
     according to define parsing rules.
     """
 
@@ -293,7 +293,7 @@ def iterdefinechars(d, offset):
                 return
 
         if c == '\\' and offset < len(d.data) - 1 and d.data[offset+1] == '\n':
-            yield ' ', offset, d.getloc(offset)
+            yield ' ', offset
             d.readline()
             offset = d.skipwhitespace(offset + 2)
             continue
@@ -304,7 +304,7 @@ def iterdefinechars(d, offset):
                 offset = o
                 continue
 
-        yield c, offset, d.getloc(offset)
+        yield c, offset
         offset += 1
 
 
@@ -317,9 +317,9 @@ def ensureend(d, offset, msg, ifunc=itermakefilechars):
     Ensure that only whitespace remains in this data.
     """
 
-    for c, o, l in ifunc(d, offset):
+    for c, o in ifunc(d, offset):
         if not c.isspace():
-            raise SyntaxError(msg, d.getloc(offset))
+            raise SyntaxError(msg, d.getloc(o))
 
 def iterlines(fd):
     """Yield (lineno, line) for each line in fd"""
@@ -348,7 +348,7 @@ def setvariable(resolvevariables, setvariables, vname, token, d, offset,
         raise SyntaxError("Empty variable name", loc=d.getloc(offset))
 
     if token == '+=':
-        val = ''.join((c for c, o, l in iterfunc(d, offset)))
+        val = ''.join((c for c, o, in iterfunc(d, offset)))
         if skipwhitespace:
             val = val.lstrip()
         setvariables.append(vname, source, val, resolvevariables)
@@ -356,7 +356,7 @@ def setvariable(resolvevariables, setvariables, vname, token, d, offset,
 
     if token == '?=':
         flavor = data.Variables.FLAVOR_RECURSIVE
-        val = ''.join((c for c, o, l in iterfunc(d, offset)))
+        val = ''.join((c for c, o, in iterfunc(d, offset)))
         if skipwhitespace:
             val = val.lstrip()
         oldflavor, oldsource, oldval = setvariables.get(vname, expand=False)
@@ -364,7 +364,7 @@ def setvariable(resolvevariables, setvariables, vname, token, d, offset,
             return
     elif token == '=':
         flavor = data.Variables.FLAVOR_RECURSIVE
-        val = ''.join((c for c, o, l in iterfunc(d, offset)))
+        val = ''.join((c for c, o, in iterfunc(d, offset)))
         if skipwhitespace:
             val = val.lstrip()
     else:
@@ -785,7 +785,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
     while True: # this is not a for loop because `di` changes during the function
         stacktop = stack[-1]
         try:
-            c, offset, loc = di.next()
+            c, offset = di.next()
         except StopIteration:
             break
 
@@ -853,8 +853,9 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
 
             continue
         elif c == '$':
+            loc = d.getloc(offset)
             try:
-                c, offset, loc = di.next()
+                c, offset = di.next()
             except StopIteration:
                 # an un-terminated $ expands to nothing
                 break
@@ -896,7 +897,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
             stacktop.expansion.append(c)
 
     if len(stack) != 1:
-        raise SyntaxError("Unterminated function call", d.getloc(len(d) - 1))
+        raise SyntaxError("Unterminated function call", d.getloc(offset))
 
     assert stack[0].parsestate == PARSESTATE_TOPLEVEL
 
