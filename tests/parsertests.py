@@ -245,7 +245,7 @@ class VariableTest(TestBase):
             if val is None:
                 self.assertEqual(val, v, 'variable named %s' % k)
             else:
-                self.assertEqual(val.resolve(m.variables, None), v, 'variable named %s' % k)
+                self.assertEqual(val.resolve(m.variables), v, 'variable named %s' % k)
 
 class SimpleRuleTest(TestBase):
     testdata = """
@@ -273,7 +273,7 @@ all:: test test2 $(VAR)
         self.assertEqual(prereqs, ['test', 'test2', 'value'], "Prerequisites")
         commands = rules[0].commands
         self.assertEqual(len(commands), 1, "Number of commands")
-        expanded = commands[0].resolve(target.variables, None)
+        expanded = commands[0].resolve(target.variables)
         self.assertEqual(expanded, 'echo "Hello, myrule"')
 
         irules = m.implicitrules
