@@ -558,10 +558,10 @@ class ShellFunction(Function):
         p = subprocess.Popen(cline, shell=True, stdout=subprocess.PIPE)
         stdout, stderr = p.communicate()
 
-        stdout.replace('\r\n', '\n')
+        stdout = stdout.replace('\r\n', '\n')
         if len(stdout) > 1 and stdout[-1] == '\n':
             stdout = stdout[:-1]
-        stdout.replace('\n', ' ')
+        stdout = stdout.replace('\n', ' ')
 
         return stdout
 
