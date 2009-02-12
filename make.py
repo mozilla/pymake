@@ -6,7 +6,7 @@ make.py
 A drop-in or mostly drop-in replacement for GNU make.
 """
 
-import os, subprocess, sys, logging
+import os, subprocess, sys, logging, time
 from optparse import OptionParser
 from pymake.data import Makefile, DataError
 from pymake.parser import parsestream, parsecommandlineargs, SyntaxError
@@ -115,10 +115,13 @@ try:
     while True:
         m = Makefile(restarts=i, make='%s %s' % (sys.executable, sys.argv[0]),
                      makeflags=makeflags, makelevel=makelevel)
-        targets = parsecommandlineargs(m, arguments)
 
+        starttime = time.time()
+        targets = parsecommandlineargs(m, arguments)
         for f in options.makefiles:
             m.include(f)
+
+        log.info("Parsing[%i] took %f seconds" % (i, time.time() - starttime,))
 
         m.finishparsing()
         if m.remakemakefiles():
@@ -138,8 +141,10 @@ try:
         tstack = ['<command-line>']
 
 
+    starttime = time.time()
     for t in targets:
         m.gettarget(t).make(m, ['<command-line>'], [])
+    log.info("Execution took %f seconds" % (time.time() - starttime,))
 
 except (DataError, SyntaxError, subprocess.CalledProcessError), e:
     print e
