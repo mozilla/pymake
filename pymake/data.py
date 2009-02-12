@@ -62,6 +62,9 @@ def splitwords(s):
             del words[i]
     return words
 
+def getindent(stack):
+    return ''.ljust(len(stack) - 1)
+
 def _if_else(c, t, f):
     if c:
         return t()
@@ -449,7 +452,9 @@ class Target(object):
         """
         # The steps in the GNU make manual Implicit-Rule-Search.html are very detailed. I hope they can be trusted.
 
-        log.info("Trying to find implicit rule to make '%s'" % self.target)
+        indent = getindent(targetstack)
+
+        log.info(indent + "Trying to find implicit rule to make '%s'" % (self.target,))
 
         dir, s, file = self.target.rpartition('/')
         dir = dir + s
@@ -459,11 +464,11 @@ class Target(object):
         hasmatch = any((r.hasmatch(file) for r in makefile.implicitrules))
         for r in makefile.implicitrules:
             if r in rulestack:
-                log.info("%s: Avoiding implicit rule recursion" % (r.loc,))
+                log.info(indent + " %s: Avoiding implicit rule recursion" % (r.loc,))
                 continue
 
             if not len(r.commands):
-                log.info("%s: Has no commands" % (r.loc,))
+                log.info(indent + " %s: Has no commands" % (r.loc,))
                 continue
 
             for ri in r.matchesfor(dir, file, hasmatch):
@@ -482,12 +487,12 @@ class Target(object):
 
             if depfailed is not None:
                 if r.doublecolon:
-                    log.info("  Terminal rule at %s doesn't match: prerequisite '%s' not mentioned and doesn't exist." % (r.loc, depfailed))
+                    log.info(indent + " Terminal rule at %s doesn't match: prerequisite '%s' not mentioned and doesn't exist." % (r.loc, depfailed))
                 else:
                     newcandidates.append(r)
                 continue
 
-            log.info("Found implicit rule at %s for target '%s'" % (r.loc, self.target))
+            log.info(indent + "Found implicit rule at %s for target '%s'" % (r.loc, self.target))
             self.rules.append(r)
             return
 
@@ -506,14 +511,14 @@ class Target(object):
                     break
 
             if depfailed is not None:
-                log.info("  Rule at %s doesn't match: prerequisite '%s' could not be made." % (r.loc, depfailed))
+                log.info(indent + " Rule at %s doesn't match: prerequisite '%s' could not be made." % (r.loc, depfailed))
                 continue
 
-            log.info("Found implicit rule at %s for target '%s'" % (r.loc, self.target))
+            log.info(indent + "Found implicit rule at %s for target '%s'" % (r.loc, self.target))
             self.rules.append(r)
             return
 
-        log.info("Couldn't find implicit rule to remake '%s'" % (self.target,))
+        log.info(indent + "Couldn't find implicit rule to remake '%s'" % (self.target,))
 
     def ruleswithcommands(self):
         "The number of rules with commands"
@@ -541,9 +546,11 @@ class Target(object):
             raise ResolutionError("Recursive dependency: %s -> %s" % (
                     " -> ".join(targetstack), self.target))
 
-        log.info("Considering target '%s'" % (self.target,))
-
         targetstack = targetstack + [self.target]
+        
+        indent = getindent(targetstack)
+
+        log.info(indent + "Considering target '%s'" % (self.target,))
 
         self.resolvevpath(makefile)
 
@@ -566,10 +573,11 @@ class Target(object):
         if not len(self.rules) and self.mtime is None and not any((len(rule.prerequisites) > 0
                                                                    for rule in self.rules)):
             if required:
-                raise ResolutionError("No rule to make target '%s' needed by %s" % (self.target,
-                    ' -> '.join(targetstack[:-1])))
+                raise ResolutionError("No rule to make target '%s' needed by %r" % (self.target,
+                                                                                    targetstack))
 
         for r in self.rules:
+            log.info(indent + "Will remake target '%s' using rule at %s" % (self.target, r.loc))
             newrulestack = rulestack + [r]
             for d in r.prerequisites:
                 dt = makefile.gettarget(d)
@@ -655,6 +663,10 @@ class Target(object):
         self.resolvedeps(makefile, targetstack, rulestack, required)
         assert self.vpathtarget is not None, "Target was never resolved!"
 
+        targetstack = targetstack + [self.target]
+
+        indent = getindent(targetstack)
+
         didanything = False
 
         if len(self.rules) == 0:
@@ -667,9 +679,9 @@ class Target(object):
                     remake = True
                 for p in r.prerequisites:
                     dep = makefile.gettarget(p)
-                    didanything = dep.make(makefile, [], []) or didanything
+                    didanything = dep.make(makefile, targetstack, []) or didanything
                     if not remake and mtimeislater(dep.mtime, self.mtime):
-                        log.info("Remaking %s using rule at %s because %s is newer." % (self.target, r.loc, p))
+                        log.info(indent + "Remaking %s using rule at %s because %s is newer." % (self.target, r.loc, p))
                         remake = True
                 if remake:
                     self.remake()
@@ -679,7 +691,7 @@ class Target(object):
             commandrule = None
             remake = False
             if self.mtime is None:
-                log.info("Remaking %s because it doesn't exist or is a forced target" % (self.target,))
+                log.info(indent + "Remaking %s because it doesn't exist or is a forced target" % (self.target,))
                 remake = True
 
             for r in self.rules:
@@ -688,9 +700,9 @@ class Target(object):
                     commandrule = r
                 for p in r.prerequisites:
                     dep = makefile.gettarget(p)
-                    didanything = dep.make(makefile, [], []) or didanything
+                    didanything = dep.make(makefile, targetstack, []) or didanything
                     if not remake and mtimeislater(dep.mtime, self.mtime):
-                        log.info("Remaking %s because %s is newer" % (self.target, p))
+                        log.info(indent + "Remaking %s because %s is newer" % (self.target, p))
                         remake = True
 
             if remake:
@@ -1031,7 +1043,7 @@ class Makefile(object):
                 for p in r.prerequisites:
                     self.gettarget(p).explicit = True
 
-    def include(self, path, required=True):
+    def include(self, path, required=True, loc=None):
         """
         Include the makefile at `path`.
         """
@@ -1042,7 +1054,7 @@ class Makefile(object):
             pymake.parser.parsestream(fd, path, self)
             self.gettarget(path).explicit = True
         elif required:
-            raise DataError("Attempting to include file which doesn't exist.")
+            raise DataError("Attempting to include file '%s' which doesn't exist." % (path,), loc)
 
     def remakemakefiles(self):
         reparse = False

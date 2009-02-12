@@ -518,7 +518,7 @@ def parsestream(fd, filename, makefile):
 
         if len(d.data) > 0 and d.data[0] == '\t' and currule is not None:
             if any((not c.active for c in condstack)):
-                log.info('%s: skipping line because of active conditions' % (d.getloc(0),))
+                log.debug('%s: skipping line because of active conditions' % (d.getloc(0),))
                 continue
 
             e, t, o = parsemakesyntax(d, 1, (), itercommandchars)
@@ -565,7 +565,7 @@ def parsestream(fd, filename, makefile):
                 continue
 
             if any((not c.active for c in condstack)):
-                log.info('%s: skipping line because of active conditions' % (d.getloc(0),))
+                log.debug('%s: skipping line because of active conditions' % (d.getloc(0),))
                 for c in itermakefilechars(d, offset):
                     pass
                 continue
@@ -590,7 +590,7 @@ def parsestream(fd, filename, makefile):
                 incfile, t, offset = parsemakesyntax(d, offset, (), itermakefilechars)
                 files = data.splitwords(incfile.resolve(makefile.variables))
                 for f in files:
-                    makefile.include(f, kword == 'include')
+                    makefile.include(f, kword == 'include', loc=d.getloc(offset))
                 continue
 
             if kword == 'override':
@@ -723,7 +723,10 @@ def parsestream(fd, filename, makefile):
 
                     for t in targets:
                         tname = t.gettarget()
-                        pinstance = data.PatternRuleInstance(currule, '', tname, pattern.ismatchany())
+                        stem = pattern.match(tname)
+                        if stem is None:
+                            raise SyntaxError("Target '%s' of static pattern rule does not match pattern '%s'" % (tname, pattern), d.getloc(0))
+                        pinstance = data.PatternRuleInstance(currule, '', stem, pattern.ismatchany())
                         makefile.gettarget(tname).addrule(pinstance)
 
                     if len(targets):

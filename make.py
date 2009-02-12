@@ -133,9 +133,13 @@ try:
             print "No target specified and no default target found."
             sys.exit(2)
         targets = [m.defaulttarget]
+        tstack = ['<default-target>']
+    else:
+        tstack = ['<command-line>']
+
 
     for t in targets:
-        m.gettarget(t).make(m, [], [])
+        m.gettarget(t).make(m, ['<command-line>'], [])
 
 except (DataError, SyntaxError, subprocess.CalledProcessError), e:
     print e

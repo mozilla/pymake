@@ -58,7 +58,7 @@ class VariableRef(Function):
 
         flavor, source, value = variables.get(vname)
         if value is None:
-            log.info("%s: variable '%s' was not set" % (self.loc, vname))
+            log.debug("%s: variable '%s' was not set" % (self.loc, vname))
             return ''
 
         return value.resolve(variables, setting + [vname])
@@ -84,7 +84,7 @@ class SubstitutionRef(Function):
 
         flavor, source, value = variables.get(vname)
         if value is None:
-            log.info("%s: variable '%s' was not set" % (self.loc, vname))
+            log.debug("%s: variable '%s' was not set" % (self.loc, vname))
             return ''
 
         evalue = value.resolve(variables, setting + [vname])
