@@ -345,12 +345,14 @@ class Pattern(object):
                 return word
             return None
 
-        search = r'^%s(.*)%s$' % (re.escape(self.data[0]),
-                                  re.escape(self.data[1]))
-        m = re.match(search, word)
-        if m is None:
-            return None
-        return m.group(1)
+        l1 = len(self.data[0])
+        l2 = len(self.data[1])
+        if len(word) >= l1 + l2 and word.startswith(self.data[0]) and word.endswith(self.data[1]):
+            if l2 == 0:
+                return word[l1:]
+            return word[l1:-l2]
+
+        return None
 
     def resolve(self, dir, stem):
         if self.ispattern():
