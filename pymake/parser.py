@@ -18,7 +18,7 @@ After splitting data into parseable chunks, we use a recursive-descent parser to
 nest parenthesized syntax.
 """
 
-import logging
+import logging, re
 from pymake import data, functions
 from cStringIO import StringIO
 
@@ -142,7 +142,7 @@ class Data(object):
             offset += 1
         return offset
 
-    def findtoken(self, o, tlist, needws):
+    def findtoken(self, o, tlist, skipws):
         """
         Check data at position o for any of the tokens in tlist followed by whitespace
         or end-of-data.
@@ -150,111 +150,162 @@ class Data(object):
         If a token is found, skip trailing whitespace and return (token, newoffset).
         Otherwise return None, oldoffset
         """
-        for t in tlist:
-            end = o + len(t)
-            if self.data[o:end] == t:
-                if not needws:
-                    return t, end
-                elif end == len(self.data) or self.data[end].isspace():
-                    end = self.skipwhitespace(end)
-                    return t, end
+        assert isinstance(tlist, TokenList)
+
+        if skipws:
+            m = tlist.wslist.match(self.data, pos=o)
+            if m is not None:
+                return m.group(1), m.end(0)
+        else:
+            m = tlist.simplere.match(self.data, pos=o)
+            if m is not None:
+                return m.group(0), m.end(0)
+
         return None, o
 
-def iterdata(d, offset):
-    """
-    A Data iterator yielding (char, offset) without any escaping.
-    """
-    while offset < len(d.data):
-        yield d.data[offset], offset
-        offset += 1
+makefiletokensescaped = [r'\\\\#', r'\\#', '\\\\\n', '\\\\\\s+\\\\\n', r'\\.', '#', '\n']
+continuationtokensescaped = ['\\\\\n', r'\\.', '\n']
 
-def itermakefilechars(d, offset):
+class TokenList(object):
     """
-    A Data generator yielding (char, offset). It will escape comments and newline
-    continuations according to makefile syntax rules.
+    A list of tokens to search. Because these lists are static, we can perform
+    optimizations (such as escaping and compiling regexes) on construction.
     """
+    def __init__(self, tlist):
+        self.emptylist = len(tlist) == 0
+        escapedlist = [re.escape(t) for t in tlist]
+        self.simplere = re.compile('|'.join(escapedlist))
+        self.makefilere = re.compile('|'.join(escapedlist + makefiletokensescaped))
+        self.continuationre = re.compile('|'.join(escapedlist + continuationtokensescaped))
+
+        self.wslist = re.compile('(' + '|'.join(escapedlist) + ')' + r'(\s+|$)')
+
+    imap = {}
+
+    @staticmethod
+    def get(s):
+        if s in TokenList.imap:
+            return TokenList.imap[s]
+
+        i = TokenList(s)
+        TokenList.imap[s] = i
+        return i
+
+emptytokenlist = TokenList.get('')
+
+# The following four iterators handle line continuations and comments in
+# different ways, but share a similar behavior:
+#
+# Called with (data, startoffset, tokenlist)
+#
+# yield 4-tuples (flatstr, token, tokenoffset, afteroffset)
+# flatstr is data, guaranteed to have no tokens (may be '')
+# token, tokenoffset, afteroffset *may be None*. That means there is more text
+# coming.
+
+def iterdata(d, offset, tokenlist):
+    if tokenlist.emptylist:
+        yield d.data, None, None, None
+        return
+
+    s = tokenlist.simplere
 
     while offset < len(d.data):
-        c = d.data[offset]
-        if c == '\n':
-            assert offset == len(d.data) - 1
+        m = s.search(d.data, pos=offset)
+        if m is None:
+            yield d.data[offset:], None, None, None
             return
 
-        if c == '#':
-            while offset < len(d.data):
-                c = d.data[offset]
-                if c == '\\' and offset < len(d.data) - 1:
-                    offset += 1
-                    c = d.data[offset]
-                    if c == '\n':
-                        assert offset == len(d.data) - 1, 'unexpected newline'
-                        d.readline()
-                offset += 1
+        yield d.data[offset:m.start(0)], m.group(0), m.start(0), m.end(0)
+        offset = m.end(0)
+
+def itermakefilechars(d, offset, tokenlist):
+    s = tokenlist.makefilere
+
+    while offset < len(d.data):
+        m = s.search(d.data, pos=offset)
+        if m is None:
+            yield d.data[offset:], None, None, None
             return
-        elif c == '\\' and offset < len(d.data) - 1:
-            c2 = d.data[offset + 1]
-            if c2 == '#':
-                offset += 1
-                yield '#', offset
-                offset += 1
-            elif d[offset:offset + 3] == '\\\\#':
-                # see escape-chars.mk VARAWFUL
-                offset += 1
-                yield '\\', offset
-                offset += 1
-            elif c2 == '\n':
-                yield ' ', offset
-                d.readline()
-                offset = d.skipwhitespace(offset + 2)
-            elif c2 == '\\':
-                yield '\\', offset
-                offset += 1
-                yield '\\', offset
-                offset += 1
-            else:
-                yield c, offset
-                offset += 1
+
+        token = m.group(0)
+        start = m.start(0)
+        end = m.end(0)
+
+        if token == '\n':
+            assert end == len(d.data)
+            yield d.data[offset:start], None, None, None
+            return
+
+        if token == '#':
+            yield d.data[offset:start], None, None, None
+            for s in itermakefilechars(d, end, emptytokenlist): pass
+            return
+
+        if token == '\\\\#':
+            # see escape-chars.mk VARAWFUL
+            yield d.data[offset:start + 1], None, None, None
+            for s in itermakefilechars(d, end, emptytokenlist): pass
+            return
+
+        if token == '\\\n':
+            yield d.data[offset:start].rstrip() + ' ', None, None, None
+            d.readline()
+            offset = d.skipwhitespace(end)
+            continue
+
+        if token.startswith('\\') and token.endswith('\n'):
+            assert end == len(d.data)
+            yield d.data[offset:start] + '\\ ', None, None, None
+            d.readline()
+            offset = d.skipwhitespace(end)
+            continue
+
+        if token == '\\#':
+            yield d.data[offset:start] + '#', None, None, None
+        elif token.startswith('\\'):
+            yield d.data[offset:end], None, None, None
         else:
-            if c.isspace():
-                o = d.skipwhitespace(offset)
-                if d.data[o:o+2] == '\\\n':
-                    offset = o
-                    continue
+            yield d.data[offset:start], token, start, end
 
-            yield c, offset
-            offset += 1
+        offset = end
 
-def itercommandchars(d, offset):
-    """
-    A Data generator yielding (char, offset). It will process escapes and newlines
-    according to command parsing rules.
-    """
+def itercommandchars(d, offset, tokenlist):
+    s = tokenlist.continuationre
 
     while offset < len(d.data):
-        c = d.data[offset]
-        if c == '\n':
-            assert offset == len(d.data) - 1
+        m = s.search(d.data, pos=offset)
+        if m is None:
+            yield d.data[offset:], None, None, None
             return
 
-        yield c, offset
-        offset += 1
+        token = m.group(0)
+        start = m.start(0)
+        end = m.end(0)
 
-        if c == '\\':
-            if offset == len(d.data):
-                return
+        if token == '\n':
+            assert end == len(d.data)
+            yield d.data[offset:start], None, None, None
+            return
 
-            c = d.data[offset]
-            yield c, offset
+        if token == '\\\n':
+            yield d.data[offset:end], None, None, None
+            d.readline()
+            offset = end
+            if offset < len(d.data) and d.data[offset] == '\t':
+                offset += 1
+            continue
+        
+        if token.startswith('\\'):
+            yield d.data[offset:end], None, None, None
+        else:
+            yield d.data[offset:start], token, start, end
 
-            offset += 1
+        offset = end
 
-            if c == '\n':
-                assert offset == len(d.data)
-                d.readline()
-                if offset < len(d.data) and d.data[offset] == '\t':
-                    offset += 1
+definestokenlist = TokenList.get(('define', 'endef'))
 
-def iterdefinechars(d, offset):
+def iterdefinechars(d, offset, tokenlist):
     """
     A Data generator yielding (char, offset). It will process define/endef
     according to define parsing rules.
@@ -272,7 +323,7 @@ def iterdefinechars(d, offset):
             return 0
 
         o = d.skipwhitespace(o)
-        token, o = d.findtoken(o, ('define', 'endef'), True)
+        token, o = d.findtoken(o, definestokenlist, True)
         if token == 'define':
             return 1
 
@@ -286,30 +337,39 @@ def iterdefinechars(d, offset):
     if definecount == 0:
         return
 
+    s = tokenlist.continuationre
+
     while offset < len(d.data):
-        c = d.data[offset]
+        m = s.search(d.data, pos=offset)
+        if m is None:
+            yield d.data[offset:], None, None, None
+            break
 
-        if c == '\n':
-            d.readline()
-            definecount += checkfortoken(offset + 1)
-            if definecount == 0:
-                return
+        token = m.group(0)
+        start = m.start(0)
+        end = m.end(0)
 
-        if c == '\\' and offset < len(d.data) - 1 and d.data[offset+1] == '\n':
-            yield ' ', offset
+        if token == '\\\n':
+            yield d.data[offset:start].rstrip() + ' ', None, None, None
             d.readline()
-            offset = d.skipwhitespace(offset + 2)
+            offset = d.skipwhitespace(end)
             continue
 
-        if c.isspace():
-            o = d.skipwhitespace(offset)
-            if d.data[o:o+2] == '\\\n':
-                offset = o
-                continue
+        if token == '\n':
+            assert end == len(d.data)
+            d.readline()
+            definecount += checkfortoken(end)
+            if definecount == 0:
+                yield d.data[offset:start], None, None, None
+                return
 
-        yield c, offset
-        offset += 1
+            yield d.data[offset:end], None, None, None
+        elif token.startswith('\\'):
+            yield d.data[offset:end], None, None, None
+        else:
+            yield d.data[offset:start], token, start, end
 
+        offset = end
 
     # Unlike the other iterators, if you fall off this one there is an unterminated
     # define.
@@ -320,8 +380,8 @@ def ensureend(d, offset, msg, ifunc=itermakefilechars):
     Ensure that only whitespace remains in this data.
     """
 
-    for c, o in ifunc(d, offset):
-        if not c.isspace():
+    for c, t, o, oo in ifunc(d, offset, emptytokenlist):
+        if c != '' and not c.isspace():
             raise SyntaxError(msg, d.getloc(o))
 
 def iterlines(fd):
@@ -351,7 +411,7 @@ def setvariable(resolvevariables, setvariables, vname, token, d, offset,
         raise SyntaxError("Empty variable name", loc=d.getloc(offset))
 
     if token == '+=':
-        val = ''.join((c for c, o, in iterfunc(d, offset)))
+        val = ''.join((c for c, t, o, oo in iterfunc(d, offset, emptytokenlist)))
         if skipwhitespace:
             val = val.lstrip()
         setvariables.append(vname, source, val, resolvevariables)
@@ -359,7 +419,7 @@ def setvariable(resolvevariables, setvariables, vname, token, d, offset,
 
     if token == '?=':
         flavor = data.Variables.FLAVOR_RECURSIVE
-        val = ''.join((c for c, o, in iterfunc(d, offset)))
+        val = ''.join((c for c, t, o, oo in iterfunc(d, offset, emptytokenlist)))
         if skipwhitespace:
             val = val.lstrip()
         oldflavor, oldsource, oldval = setvariables.get(vname, expand=False)
@@ -367,7 +427,7 @@ def setvariable(resolvevariables, setvariables, vname, token, d, offset,
             return
     elif token == '=':
         flavor = data.Variables.FLAVOR_RECURSIVE
-        val = ''.join((c for c, o, in iterfunc(d, offset)))
+        val = ''.join((c for c, t, o, oo in iterfunc(d, offset, emptytokenlist)))
         if skipwhitespace:
             val = val.lstrip()
     else:
@@ -409,9 +469,11 @@ def parsecommandlineargs(makefile, args):
 
     return r
 
+eqargstokenlist = TokenList.get(('(', "'", '"'))
+
 def ifeq(d, offset, makefile):
     # the variety of formats for this directive is rather maddening
-    token, offset = d.findtoken(offset, ('(', "'", '"'), False)
+    token, offset = d.findtoken(offset, eqargstokenlist, False)
     if token is None:
         raise SyntaxError("No arguments after conditional", d.getloc(offset))
 
@@ -497,8 +559,10 @@ class Condition(object):
         if active:
             self.everactive = True
 
-directives = [k for k in conditionkeywords.iterkeys()] + \
-    ['else', 'endif', 'define', 'endef', 'override', 'include', '-include', 'vpath', 'export', 'unexport']
+conditiontokens = tuple(conditionkeywords.iterkeys())
+directivestokenlist = TokenList.get(conditiontokens + \
+    ('else', 'endif', 'define', 'endef', 'override', 'include', '-include', 'vpath', 'export', 'unexport'))
+conditionkeywordstokenlist = TokenList.get(conditiontokens)
 
 varsettokens = (':=', '+=', '?=', '=')
 
@@ -534,7 +598,7 @@ def parsestream(fd, filename, makefile):
 
             offset = d.skipwhitespace(0)
 
-            kword, offset = d.findtoken(offset, directives, True)
+            kword, offset = d.findtoken(offset, directivestokenlist, True)
             if kword == 'endif':
                 ensureend(d, offset, "Unexpected data after 'endif' directive")
                 if not len(condstack):
@@ -549,7 +613,7 @@ def parsestream(fd, filename, makefile):
                     raise SyntaxError("unmatched 'else' directive",
                                       d.getloc(offset))
 
-                kword, offset = d.findtoken(offset, conditionkeywords, True)
+                kword, offset = d.findtoken(offset, conditionkeywordstokenlist, True)
                 if kword is None:
                     ensureend(d, offset, "Unexpected data after 'else' directive.")
                     condstack[-1].makeactive(True)
@@ -569,7 +633,7 @@ def parsestream(fd, filename, makefile):
 
             if any((not c.active for c in condstack)):
                 log.debug('%s: skipping line because of active conditions' % (d.getloc(0),))
-                for c in itermakefilechars(d, offset):
+                for c in itermakefilechars(d, offset, emptytokenlist):
                     pass
                 continue
 
@@ -711,7 +775,7 @@ def parsestream(fd, filename, makefile):
 
                     # static pattern rule
                     if ispattern:
-                        raise SyntaxError("static pattern rules must have static targets")
+                        raise SyntaxError("static pattern rules must have static targets", d.getloc(0))
 
                     patstr = e.resolve(makefile.variables)
                     patterns = data.splitwords(patstr)
@@ -752,16 +816,17 @@ PARSESTATE_SUBSTFROM = 3   # expanding a variable expansion substitution "from" 
 PARSESTATE_SUBSTTO = 4     # expanding a variable expansion substitution "to" value
 
 class ParseStackFrame(object):
-    def __init__(self, parsestate, expansion, stopon, closebrace, **kwargs):
+    def __init__(self, parsestate, expansion, tokenlist, closebrace, **kwargs):
         self.parsestate = parsestate
         self.expansion = expansion
-        self.stopon = stopon
+        self.tokenlist = tokenlist
         self.closebrace = closebrace
         for key, value in kwargs.iteritems():
             setattr(self, key, value)
 
-functiontokens = [k for k in functions.functionmap.iterkeys()]
+functiontokens = list(functions.functionmap.iterkeys())
 functiontokens.sort(key=len, reverse=True)
+functiontokenlist = TokenList.get(tuple(functiontokens))
 
 def parsemakesyntax(d, startat, stopon, iterfunc):
     """
@@ -786,125 +851,117 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
 
     stack = [
         ParseStackFrame(PARSESTATE_TOPLEVEL, data.Expansion(loc=d.getloc(startat)),
-                        stopon, closebrace=None)
+                        tokenlist=TokenList.get(stopon + ('$',)),
+                        stopon=stopon, closebrace=None)
     ]
 
-    di = iterfunc(d, startat)
-    offset = startat
-
+    di = iterfunc(d, startat, stack[-1].tokenlist)
     while True: # this is not a for loop because `di` changes during the function
         stacktop = stack[-1]
         try:
-            c, offset = di.next()
+            s, token, tokenoffset, offset = di.next()
         except StopIteration:
             break
 
-        # print "  %i: stacklen=%i parsestate=%s looking for %r" % (offset, len(stack),
-        #                                                           stacktop.parsestate, stacktop.stopon),
-
-        token, offset = d.findtoken(offset, stacktop.stopon, False)
-        if token is not None:
-            c = 'dangerwillrobinson!'
-            di = iterfunc(d, offset)
-
-            if stacktop.parsestate == PARSESTATE_TOPLEVEL:
-                assert len(stack) == 1
-                return stacktop.expansion, token, offset
-
-            if stacktop.parsestate == PARSESTATE_FUNCTION:
-                if token == ',':
-                    stacktop.expansion = data.Expansion()
-                    stacktop.function.append(stacktop.expansion)
-
-                    if len(stacktop.function) == stacktop.function.maxargs:
-                        stacktop.stopon = (stacktop.closebrace,)
-                elif token in (')', '}'):
-                    stacktop.function.setup()
-                    stack.pop()
-                    stack[-1].expansion.append(stacktop.function)
-                else:
-                    assert False, "Not reached, PARSESTATE_FUNCTION"
-            elif stacktop.parsestate == PARSESTATE_VARNAME:
-                if token == ':':
-                    stacktop.varname = stacktop.expansion
-                    stacktop.parsestate = PARSESTATE_SUBSTFROM
-                    stacktop.expansion = data.Expansion()
-                    stacktop.stopon = ('=', stacktop.closebrace)
-                elif token in (')', '}'):
-                    stack.pop()
-                    stack[-1].expansion.append(functions.VariableRef(stacktop.loc, stacktop.expansion))
-                else:
-                    assert False, "Not reached, PARSESTATE_VARNAME"
-            elif stacktop.parsestate == PARSESTATE_SUBSTFROM:
-                if token == '=':
-                    stacktop.substfrom = stacktop.expansion
-                    stacktop.parsestate = PARSESTATE_SUBSTTO
-                    stacktop.expansion = data.Expansion()
-                    stacktop.stopon = (stacktop.closebrace,)
-                elif token in (')', '}'):
-                    # A substitution of the form $(VARNAME:.ee) is probably a mistake, but make
-                    # parses it. Issue a warning. Combine the varname and substfrom expansions to
-                    # make the compatible varname. See tests/var-substitutions.mk SIMPLE3SUBSTNAME
-                    log.warning("%s: Variable reference looks like substitution without =" % (stacktop.loc, ))
-                    stacktop.varname.append(':')
-                    stacktop.varname.concat(stacktop.expansion)
-                    stack.pop()
-                    stack[-1].expansion.append(functions.VariableRef(stacktop.loc, stacktop.varname))
-                else:
-                    assert False, "Not reached, PARSESTATE_SUBSTFROM"
-            elif stacktop.parsestate == PARSESTATE_SUBSTTO:
-                assert token in  (')','}'), "Not reached, PARSESTATE_SUBSTTO"
-
-                stack.pop()
-                stack[-1].expansion.append(functions.SubstitutionRef(stacktop.loc, stacktop.varname,
-                                                                     stacktop.substfrom, stacktop.expansion))
-            else:
-                assert False, "Unexpected parse state %s" % stacktop.parsestate
-
+        stacktop.expansion.append(s)
+        if token is None:
             continue
-        elif c == '$':
-            loc = d.getloc(offset)
-            try:
-                c, offset = di.next()
-            except StopIteration:
-                # an un-terminated $ expands to nothing
+
+        if token == '$':
+            if len(d.data) == offset:
+                # an unterminated $ expands to nothing
                 break
 
+            loc = d.getloc(tokenoffset)
+
+            c = d.data[offset]
             if c == '$':
                 stacktop.expansion.append('$')
-                continue
-
-            if c in ('(', '{'):
+                offset = offset + 1
+            elif c in ('(', '{'):
                 closebrace = c == '(' and ')' or '}'
 
                 # look forward for a function name
-                fname, offset = d.findtoken(offset + 1, functiontokens, True)
+                fname, offset = d.findtoken(offset + 1, functiontokenlist, True)
                 if fname is not None:
                     fn = functions.functionmap[fname](loc)
                     e = data.Expansion()
                     fn.append(e)
                     if len(fn) == fn.maxargs:
-                        stopon = (')',)
+                        tokenlist = TokenList.get((closebrace, '$'))
                     else:
-                        stopon = (',', ')')
+                        tokenlist = TokenList.get((',', closebrace, '$'))
 
                     stack.append(ParseStackFrame(PARSESTATE_FUNCTION,
-                                                 e, stopon, function=fn,
+                                                 e, tokenlist, function=fn,
                                                  closebrace=closebrace))
-                    di = iterfunc(d, offset)
+                    di = iterfunc(d, offset, tokenlist)
                     continue
 
                 e = data.Expansion()
-                stack.append(ParseStackFrame(PARSESTATE_VARNAME, e, (':', closebrace), closebrace=closebrace, loc=loc))
+                tokenlist = TokenList.get((':', closebrace, '$'))
+                stack.append(ParseStackFrame(PARSESTATE_VARNAME, e, tokenlist, closebrace=closebrace, loc=loc))
+                di = iterfunc(d, offset, tokenlist)
                 continue
+            else:
+                e = data.Expansion.fromstring(c)
+                stacktop.expansion.append(functions.VariableRef(loc, e))
+                offset += 1
+        elif stacktop.parsestate == PARSESTATE_TOPLEVEL:
+            assert len(stack) == 1
+            return stacktop.expansion, token, offset
+        elif stacktop.parsestate == PARSESTATE_FUNCTION:
+            if token == ',':
+                stacktop.expansion = data.Expansion()
+                stacktop.function.append(stacktop.expansion)
 
-            fe = data.Expansion()
-            fe.append(c)
-            stacktop.expansion.append(functions.VariableRef(loc, fe))
-            continue
+                if len(stacktop.function) == stacktop.function.maxargs:
+                    tokenlist = TokenList.get((stacktop.closebrace, '$'))
+                    stacktop.tokenlist = tokenlist
+            elif token in (')', '}'):
+                    stacktop.function.setup()
+                    stack.pop()
+                    stack[-1].expansion.append(stacktop.function)
+            else:
+                assert False, "Not reached, PARSESTATE_FUNCTION"
+        elif stacktop.parsestate == PARSESTATE_VARNAME:
+            if token == ':':
+                stacktop.varname = stacktop.expansion
+                stacktop.parsestate = PARSESTATE_SUBSTFROM
+                stacktop.expansion = data.Expansion()
+                stacktop.tokenlist = TokenList.get(('=', stacktop.closebrace, '$'))
+            elif token in (')', '}'):
+                stack.pop()
+                stack[-1].expansion.append(functions.VariableRef(stacktop.loc, stacktop.expansion))
+            else:
+                assert False, "Not reached, PARSESTATE_VARNAME"
+        elif stacktop.parsestate == PARSESTATE_SUBSTFROM:
+            if token == '=':
+                stacktop.substfrom = stacktop.expansion
+                stacktop.parsestate = PARSESTATE_SUBSTTO
+                stacktop.expansion = data.Expansion()
+                stacktop.tokenlist = TokenList.get((stacktop.closebrace, '$'))
+            elif token in (')', '}'):
+                # A substitution of the form $(VARNAME:.ee) is probably a mistake, but make
+                # parses it. Issue a warning. Combine the varname and substfrom expansions to
+                # make the compatible varname. See tests/var-substitutions.mk SIMPLE3SUBSTNAME
+                log.warning("%s: Variable reference looks like substitution without =" % (stacktop.loc, ))
+                stacktop.varname.append(':')
+                stacktop.varname.concat(stacktop.expansion)
+                stack.pop()
+                stack[-1].expansion.append(functions.VariableRef(stacktop.loc, stacktop.varname))
+            else:
+                assert False, "Not reached, PARSESTATE_SUBSTFROM"
+        elif stacktop.parsestate == PARSESTATE_SUBSTTO:
+            assert token in  (')','}'), "Not reached, PARSESTATE_SUBSTTO"
 
+            stack.pop()
+            stack[-1].expansion.append(functions.SubstitutionRef(stacktop.loc, stacktop.varname,
+                                                                 stacktop.substfrom, stacktop.expansion))
         else:
-            stacktop.expansion.append(c)
+            assert False, "Unexpected parse state %s" % stacktop.parsestate
+
+        di = iterfunc(d, offset, stack[-1].tokenlist)
 
     if len(stack) != 1:
         raise SyntaxError("Unterminated function call", d.getloc(offset))
