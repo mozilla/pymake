@@ -142,7 +142,7 @@ class Data(object):
             offset += 1
         return offset
 
-    def findtoken(self, o, tlist, needws):
+    def findtoken(self, o, tlist, skipws):
         """
         Check data at position o for any of the tokens in tlist followed by whitespace
         or end-of-data.
@@ -150,14 +150,17 @@ class Data(object):
         If a token is found, skip trailing whitespace and return (token, newoffset).
         Otherwise return None, oldoffset
         """
-        for t in tlist:
-            end = o + len(t)
-            if self.data[o:end] == t:
-                if not needws:
-                    return t, end
-                elif end == len(self.data) or self.data[end].isspace():
-                    end = self.skipwhitespace(end)
-                    return t, end
+        assert isinstance(tlist, TokenList)
+
+        if skipws:
+            m = tlist.wslist.match(self.data, pos=o)
+            if m is not None:
+                return m.group(1), m.end(0)
+        else:
+            m = tlist.simplere.match(self.data, pos=o)
+            if m is not None:
+                return m.group(0), m.end(0)
+
         return None, o
 
 makefiletokensescaped = [r'\\\\#', r'\\#', '\\\\\n', '\\\\\\s+\\\\\n', r'\\.', '#', '\n']
@@ -174,6 +177,8 @@ class TokenList(object):
         self.simplere = re.compile('|'.join(escapedlist))
         self.makefilere = re.compile('|'.join(escapedlist + makefiletokensescaped))
         self.continuationre = re.compile('|'.join(escapedlist + continuationtokensescaped))
+
+        self.wslist = re.compile('(' + '|'.join(escapedlist) + ')' + r'(\s+|$)')
 
     imap = {}
 
@@ -284,11 +289,9 @@ def itercommandchars(d, offset, tokenlist):
             return
 
         if token == '\\\n':
-            print "found newline"
             yield d.data[offset:end], None, None, None
             d.readline()
             offset = end
-            print "new len: %s offset: %s" % (len(d.data), offset)
             if offset < len(d.data) and d.data[offset] == '\t':
                 offset += 1
             continue
@@ -299,6 +302,8 @@ def itercommandchars(d, offset, tokenlist):
             yield d.data[offset:start], token, start, end
 
         offset = end
+
+definestokenlist = TokenList.get(('define', 'endef'))
 
 def iterdefinechars(d, offset, tokenlist):
     """
@@ -318,7 +323,7 @@ def iterdefinechars(d, offset, tokenlist):
             return 0
 
         o = d.skipwhitespace(o)
-        token, o = d.findtoken(o, ('define', 'endef'), True)
+        token, o = d.findtoken(o, definestokenlist, True)
         if token == 'define':
             return 1
 
@@ -464,9 +469,11 @@ def parsecommandlineargs(makefile, args):
 
     return r
 
+eqargstokenlist = TokenList.get(('(', "'", '"'))
+
 def ifeq(d, offset, makefile):
     # the variety of formats for this directive is rather maddening
-    token, offset = d.findtoken(offset, ('(', "'", '"'), False)
+    token, offset = d.findtoken(offset, eqargstokenlist, False)
     if token is None:
         raise SyntaxError("No arguments after conditional", d.getloc(offset))
 
@@ -552,8 +559,10 @@ class Condition(object):
         if active:
             self.everactive = True
 
-directives = [k for k in conditionkeywords.iterkeys()] + \
-    ['else', 'endif', 'define', 'endef', 'override', 'include', '-include', 'vpath', 'export', 'unexport']
+conditiontokens = tuple(conditionkeywords.iterkeys())
+directivestokenlist = TokenList.get(conditiontokens + \
+    ('else', 'endif', 'define', 'endef', 'override', 'include', '-include', 'vpath', 'export', 'unexport'))
+conditionkeywordstokenlist = TokenList.get(conditiontokens)
 
 varsettokens = (':=', '+=', '?=', '=')
 
@@ -589,7 +598,7 @@ def parsestream(fd, filename, makefile):
 
             offset = d.skipwhitespace(0)
 
-            kword, offset = d.findtoken(offset, directives, True)
+            kword, offset = d.findtoken(offset, directivestokenlist, True)
             if kword == 'endif':
                 ensureend(d, offset, "Unexpected data after 'endif' directive")
                 if not len(condstack):
@@ -604,7 +613,7 @@ def parsestream(fd, filename, makefile):
                     raise SyntaxError("unmatched 'else' directive",
                                       d.getloc(offset))
 
-                kword, offset = d.findtoken(offset, conditionkeywords, True)
+                kword, offset = d.findtoken(offset, conditionkeywordstokenlist, True)
                 if kword is None:
                     ensureend(d, offset, "Unexpected data after 'else' directive.")
                     condstack[-1].makeactive(True)
@@ -815,8 +824,9 @@ class ParseStackFrame(object):
         for key, value in kwargs.iteritems():
             setattr(self, key, value)
 
-functiontokens = [k for k in functions.functionmap.iterkeys()]
+functiontokens = list(functions.functionmap.iterkeys())
 functiontokens.sort(key=len, reverse=True)
+functiontokenlist = TokenList.get(tuple(functiontokens))
 
 def parsemakesyntax(d, startat, stopon, iterfunc):
     """
@@ -872,7 +882,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 closebrace = c == '(' and ')' or '}'
 
                 # look forward for a function name
-                fname, offset = d.findtoken(offset + 1, functiontokens, True)
+                fname, offset = d.findtoken(offset + 1, functiontokenlist, True)
                 if fname is not None:
                     fn = functions.functionmap[fname](loc)
                     e = data.Expansion()
