@@ -70,6 +70,25 @@ def _if_else(c, t, f):
         return t()
     return f()
 
+def checkmsyscompat():
+    """For msys compatibility on windows, honor the SHELL environment variable,
+    and if $MSYSTEM == MINGW32, run commands through $SHELL -c instead of
+    letting Python use the system shell."""
+    if 'SHELL' in os.environ:
+        shell = os.environ['SHELL']
+    elif 'COMSPEC' in os.environ:
+        shell = os.environ['COMSPEC']
+    else:
+        raise DataError("Can't find a suitable shell!")
+
+    prependshell = False
+    if 'MSYSTEM' in os.environ and os.environ['MSYSTEM'] == 'MINGW32':
+        #XXX: transliterate slashes?
+        prependshell = True
+        if not shell.lower().endswith(".exe"):
+            shell += ".exe"
+    return (shell, prependshell)
+
 class Expansion(object):
     """
     A representation of expanded data, such as that for a recursively-expanded variable, a command, etc.
@@ -630,7 +649,8 @@ class Target(object):
 
         search = [self.target]
         if not os.path.isabs(self.target):
-            search += [os.path.join(dir, self.target)
+            #XXX: not using os.path.join for MSYS support :-/
+            search += [dir + "/" + self.target
                        for dir in makefile.vpath]
 
         for t in search:
@@ -824,6 +844,7 @@ class Rule(object):
 
         env = makefile.getsubenvironment(v)
 
+        shell, prependshell = checkmsyscompat()
         for c in self.commands:
             cstring = c.resolve(v)
             for cline in splitcommand(cstring):
@@ -832,7 +853,9 @@ class Rule(object):
                     continue
                 if not isHidden:
                     print "%s $ %s" % (c.loc, cline)
-                r = subprocess.call(cline, shell=True, env=env)
+                if prependshell:
+                    cline = [shell, "-c", cline]
+                r = subprocess.call(cline, shell=not prependshell, env=env)
                 if r != 0 and not ignoreErrors:
                     raise DataError("command '%s' failed, return code was %s" % (cline, r), c.loc)
 

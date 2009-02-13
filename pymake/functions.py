@@ -553,9 +553,12 @@ class ShellFunction(Function):
     maxargs = 1
 
     def resolve(self, variables, setting):
+        shell, prependshell = data.checkmsyscompat()
         cline = self._arguments[0].resolve(variables, setting)
 
-        p = subprocess.Popen(cline, shell=True, stdout=subprocess.PIPE)
+        if prependshell:
+            cline = [shell, "-c", cline]
+        p = subprocess.Popen(cline, shell=not prependshell, stdout=subprocess.PIPE)
         stdout, stderr = p.communicate()
 
         stdout = stdout.replace('\r\n', '\n')
