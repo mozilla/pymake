@@ -1096,7 +1096,7 @@ class Makefile(object):
         if val is not None:
             flagsval = val.resolve(variables, ['MAKEFLAGS'])
             if flagsval != '':
-                makeflags = '-' + flagsval
+                makeflags = flagsval
 
         makeflags += ' -- '
         makeflags += ' '.join((self.flagescape.sub(r'\\\1', o) for o in self.overrides))

@@ -18,6 +18,9 @@ def parsemakeflags():
     if makeflags == '':
         return []
 
+    if makeflags[0] not in ('-', ' '):
+        makeflags = '-' + makeflags
+
     opts = []
     curopt = ''
 
@@ -71,6 +74,8 @@ op.add_option('-f', '--file', '--makefile',
 op.add_option('-d',
               action="store_true",
               dest="verbose", default=False)
+op.add_option('--debug-log',
+              dest="debuglog", default=None)
 op.add_option('-C', '--directory',
               dest="directory", default=None)
 op.add_option('-v', '--version',
@@ -84,19 +89,26 @@ arglist = sys.argv[1:] + parsemakeflags()
 
 options, arguments = op.parse_args(arglist)
 
-makeflags = ''
+shortflags = []
+longflags = []
 
 loglevel = logging.WARNING
 if options.verbose:
     loglevel = logging.DEBUG
-    makeflags += 'd'
+    shortflags.append('d')
+
+logkwargs = {}
+if options.debuglog:
+    logkwargs['filename'] = options.debuglog
+    longflags.append('--debug-log=%s' % options.debuglog)
 
 if options.jobcount:
     log.info("pymake doesn't implement -j yet. ignoring")
-    makeflags += 'j%i' % options.jobcount
+    shortflags.append('j%i' % options.jobcount)
 
-logging.basicConfig(level=loglevel)
+makeflags = ''.join(shortflags) + ' ' + ' '.join(longflags)
 
+logging.basicConfig(level=loglevel, **logkwargs)
 
 if options.directory:
     log.info("Switching to directory: %s" % options.directory)
