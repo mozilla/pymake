@@ -90,6 +90,9 @@ class Expansion(object):
         if not isinstance(object, (str, pymake.functions.Function)):
             raise DataError("Expansions can contain only strings or functions, got %s" % (type(object),))
 
+        if object == '':
+            return
+
         if len(self) and isinstance(object, str) and isinstance(self[-1], str):
             self[-1] += object
         else:

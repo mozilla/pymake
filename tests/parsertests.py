@@ -82,6 +82,11 @@ class IterTest(TestBase):
             "VAR = VAL  \\\n  continuation # comment \\\n  continuation",
             "VAR = VAL continuation "
             ),
+        'makecontinuation2': (
+            pymake.parser.itermakefilechars,
+            "VAR = VAL  \\  \\\n continuation",
+            "VAR = VAL  \\ continuation"
+            ),
         'makeawful': (
             pymake.parser.itermakefilechars,
             "VAR = VAL  \\\\# comment\n",
@@ -133,7 +138,7 @@ endef\n""",
         d = pymake.parser.Data(lineiter, 'PlainIterTest-data')
         d.readline()
 
-        actual = ''.join( (c for c, offset, location in ifunc(d, 0)) )
+        actual = ''.join( (c for c, t, o, oo in ifunc(d, 0, pymake.parser.emptytokenlist)) )
         self.assertEqual(actual, expected)
 
         self.assertRaises(StopIteration, lambda: fd.next())
@@ -160,7 +165,7 @@ class MakeSyntaxTest(TestBase):
                     {'type': 'VariableRef',
                      '.vname': ['VAR']}
                     ]),
-        'dynamicvarname': ('echo $($(VARNAME):.c=.o)', 0, (':'), None,
+        'dynamicvarname': ('echo $($(VARNAME):.c=.o)', 0, (':',), None,
                            ['echo ',
                             {'type': 'SubstitutionRef',
                              '.vname': [{'type': 'VariableRef',
