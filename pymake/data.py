@@ -123,7 +123,7 @@ class Expansion(object):
         if len(self) > 0 and isinstance(self[-1], str) and self[-1][-1] == '\n':
             self[-1] = self[-1][:-1]
 
-    def resolve(self, variables, setting=[]):
+    def resolve(self, makefile, variables, setting=[]):
         """
         Resolve this variable into a value, by interpolating the value
         of other variables.
@@ -132,9 +132,11 @@ class Expansion(object):
                being set, if any. Setting variables must avoid self-referential
                loops.
         """
+        assert isinstance(makefile, Makefile)
+        assert isinstance(variables, Variables)
         assert isinstance(setting, list)
 
-        return ''.join( (_if_else(isinstance(i, str), lambda: i, lambda: i.resolve(variables, setting))
+        return ''.join( (_if_else(isinstance(i, str), lambda: i, lambda: i.resolve(makefile, variables, setting))
                          for i in self._elements) )
 
     def __len__(self):
@@ -245,7 +247,7 @@ class Variables(object):
 
         self._map[name] = (flavor, source, value)
 
-    def append(self, name, source, value, variables):
+    def append(self, name, source, value, variables, makefile):
         assert source in (self.SOURCE_OVERRIDE, self.SOURCE_MAKEFILE, self.SOURCE_AUTOMATIC)
         assert isinstance(value, str)
         
@@ -259,7 +261,7 @@ class Variables(object):
                 d = pymake.parser.Data(None, None)
                 d.append(value, pymake.parser.Location("Expansion of variable '%s'" % (name,), 1, 0))
                 e, t, o = pymake.parser.parsemakesyntax(d, 0, (), pymake.parser.iterdata)
-                val = e.resolve(variables, [name])
+                val = e.resolve(makefile, variables, [name])
             else:
                 val = value
 
@@ -606,7 +608,7 @@ class Target(object):
             stem = self.target[2:]
             f, s, e = makefile.variables.get('.LIBPATTERNS')
             if e is not None:
-                libpatterns = map(Pattern, splitwords(e.resolve(makefile.variables, [])))
+                libpatterns = map(Pattern, splitwords(e.resolve(makefile, makefile.variables)))
                 if len(libpatterns):
                     searchdirs = [''] + makefile.vpath
 
@@ -825,7 +827,7 @@ class Rule(object):
         env = makefile.getsubenvironment(v)
 
         for c in self.commands:
-            cstring = c.resolve(v)
+            cstring = c.resolve(makefile, v)
             for cline in splitcommand(cstring):
                 cline, isHidden, isRecursive, ignoreErrors = findmodifiers(cline)
                 if not len(cline) or cline.isspace():
@@ -927,7 +929,7 @@ class PatternRule(object):
         env = makefile.getsubenvironment(v)
 
         for c in self.commands:
-            cstring = c.resolve(v)
+            cstring = c.resolve(makefile, v)
             for cline in splitcommand(cstring):
                 cline, isHidden, isRecursive, ignoreErrors = findmodifiers(cline)
                 if not len(cline) or cline.isspace():
@@ -1037,14 +1039,14 @@ class Makefile(object):
         self.parsingfinished = True
 
         flavor, source, value = self.variables.get('GPATH')
-        if value is not None and value.resolve(self.variables, ['GPATH']).strip() != '':
+        if value is not None and value.resolve(self, self.variables, ['GPATH']).strip() != '':
             raise DataError('GPATH was set: pymake does not support GPATH semantics')
 
         flavor, source, value = self.variables.get('VPATH')
         if value is None:
             self.vpath = []
         else:
-            self.vpath = filter(lambda e: e != '', re.split('[:\s]+', value.resolve(self.variables, ['VPATH'])))
+            self.vpath = filter(lambda e: e != '', re.split('[:\s]+', value.resolve(self, self.variables, ['VPATH'])))
 
         targets = list(self._targets.itervalues())
         for t in targets:
@@ -1060,7 +1062,7 @@ class Makefile(object):
         self.included.append(path)
         if os.path.exists(path):
             fd = open(path)
-            self.variables.append('MAKEFILE_LIST', Variables.SOURCE_AUTOMATIC, path, None)
+            self.variables.append('MAKEFILE_LIST', Variables.SOURCE_AUTOMATIC, path, None, self)
             pymake.parser.parsestream(fd, path, self)
             self.gettarget(path).explicit = True
         elif required:
@@ -1090,14 +1092,14 @@ class Makefile(object):
             if val is None:
                 strval = ''
             else:
-                strval = val.resolve(variables, [vname])
+                strval = val.resolve(self, variables, [vname])
             env[vname] = strval
 
         makeflags = ''
 
         flavor, source, val = variables.get('MAKEFLAGS')
         if val is not None:
-            flagsval = val.resolve(variables, ['MAKEFLAGS'])
+            flagsval = val.resolve(self, variables, ['MAKEFLAGS'])
             if flagsval != '':
                 makeflags = flagsval
 
