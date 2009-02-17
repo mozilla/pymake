@@ -684,6 +684,9 @@ class Target(object):
                 if self.mtime is None:
                     log.info("Remaking %s using rule at %s because it doesn't exist or is a forced target" % (self.target, r.loc))
                     remake = True
+                if len(r.prerequisites) == 0:
+                    log.info("Remaking %s using rule at %s because there are no prerequisites listed for a double-colon rule." % (self.target, r.loc))
+                    remake = True
                 for p in r.prerequisites:
                     dep = makefile.gettarget(p)
                     didanything = dep.make(makefile, targetstack, []) or didanything
