@@ -18,7 +18,7 @@ After splitting data into parseable chunks, we use a recursive-descent parser to
 nest parenthesized syntax.
 """
 
-import logging, re
+import logging, re, glob
 from pymake import data, functions
 from cStringIO import StringIO
 
@@ -559,6 +559,16 @@ class Condition(object):
         if active:
             self.everactive = True
 
+def expandwildcards(makefile, tlist):
+    for t in tlist:
+        if t.find('*') == -1 and t.find('?') == -1 and t.find('[') == -1:
+            yield t
+        else:
+            l = glob.glob(t)
+            l.sort()
+            for r in l:
+                yield r
+
 conditiontokens = tuple(conditionkeywords.iterkeys())
 directivestokenlist = TokenList.get(conditiontokens + \
     ('else', 'endif', 'define', 'endef', 'override', 'include', '-include', 'vpath', 'export', 'unexport'))
@@ -746,7 +756,8 @@ def parsestream(fd, filename, makefile):
                 # * a pattern-specific variable definition
                 # any of the rules may have order-only prerequisites
                 # delimited by |, and a command delimited by ;
-                targets = map(data.Pattern, data.splitwords(e.resolve(makefile, makefile.variables)))
+                targets = data.splitwords(e.resolve(makefile, makefile.variables))
+                targets = [data.Pattern(p) for p in expandwildcards(makefile, targets)]
 
                 if len(targets):
                     ispatterns = set((t.ispattern() for t in targets))
@@ -760,7 +771,7 @@ def parsestream(fd, filename, makefile):
                                                    varsettokens + (':', '|', ';'),
                                                    itermakefilechars)
                 if token in (None, ';'):
-                    prereqs = data.splitwords(e.resolve(makefile, makefile.variables))
+                    prereqs = [p for p in expandwildcards(makefile, data.splitwords(e.resolve(makefile, makefile.variables)))]
                     if ispattern:
                         currule = data.PatternRule(targets, map(data.Pattern, prereqs), doublecolon, loc=d.getloc(0))
                         makefile.appendimplicitrule(currule)
@@ -806,7 +817,7 @@ def parsestream(fd, filename, makefile):
                     pattern = data.Pattern(patterns[0])
 
                     e, token, offset = parsemakesyntax(d, offset, (';',), itermakefilechars)
-                    prereqs = map(data.Pattern, data.splitwords(e.resolve(makefile, makefile.variables)))
+                    prereqs = [data.Pattern(p) for p in expandwildcards(makefile, data.splitwords(e.resolve(makefile, makefile.variables)))]
                     currule = data.PatternRule([pattern], prereqs, doublecolon, loc=d.getloc(0))
 
                     for t in targets:

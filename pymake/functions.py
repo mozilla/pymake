@@ -363,7 +363,10 @@ class WildcardFunction(Function):
     def resolve(self, makefile, variables, setting):
         # TODO: will need work when we support -C without actually changing the OS cwd
         pattern = self._arguments[0].resolve(makefile, variables, setting)
-        return ' '.join(glob.glob(pattern))
+
+        r = glob.glob(pattern)
+        r.sort()
+        return ' '.join(r)
 
 class RealpathFunction(Function):
     name = 'realpath'

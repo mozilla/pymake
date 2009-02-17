@@ -1020,7 +1020,7 @@ class Makefile(object):
         assert target != '', "empty target?"
 
         if target.find('*') != -1 or target.find('?') != -1 or target.find('[') != -1:
-            raise DataError("pymake doesn't implement wildcards in targets/prerequisites.")
+            raise DataError("wildcards should have been expanded by the parser: '%s'" % (target,))
 
         t = self._targets.get(target, None)
         if t is None:
