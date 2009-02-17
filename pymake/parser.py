@@ -660,6 +660,27 @@ def parsestream(fd, filename, makefile):
                     makefile.include(f, kword == 'include', loc=d.getloc(offset))
                 continue
 
+            if kword == 'vpath':
+                e, t, offset = parsemakesyntax(d, offset, (' ', '\t'), itermakefilechars)
+                patstr = e.resolve(makefile, makefile.variables)
+                pattern = data.Pattern(patstr)
+                if t is None:
+                    makefile.clearallvpaths()
+                else:
+                    e, t, offset = parsemakesyntax(d, offset, (), itermakefilechars)
+                    dirs = e.resolve(makefile, makefile.variables)
+                    dirlist = []
+                    for direl in data.splitwords(dirs):
+                        dirlist.extend((dir
+                                        for dir in direl.split(':')
+                                        if dir != ''))
+
+                    if len(dirlist) == 0:
+                        makefile.clearvpath(pattern)
+                    else:
+                        makefile.addvpath(pattern, dirlist)
+                continue
+
             if kword == 'override':
                 e, token, offset = parsemakesyntax(d, offset, varsettokens, itermakefilechars)
                 e.lstrip()

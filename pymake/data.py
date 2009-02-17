@@ -610,7 +610,8 @@ class Target(object):
             if e is not None:
                 libpatterns = map(Pattern, splitwords(e.resolve(makefile, makefile.variables)))
                 if len(libpatterns):
-                    searchdirs = [''] + makefile.vpath
+                    searchdirs = ['']
+                    searchdirs.extend(makefile.getvpath(self.target))
 
                     for lp in libpatterns:
                         if not lp.ispattern():
@@ -633,7 +634,7 @@ class Target(object):
         search = [self.target]
         if not os.path.isabs(self.target):
             search += [os.path.join(dir, self.target)
-                       for dir in makefile.vpath]
+                       for dir in makefile.getvpath(self.target)]
 
         for t in search:
             mtime = getmtime(t)
@@ -954,6 +955,8 @@ class Makefile(object):
         self.implicitrules = []
         self.parsingfinished = False
 
+        self._patternvpaths = [] # of (pattern, [dir, ...])
+
         if workdir is None:
             workdir = os.getcwd()
         workdir = os.path.realpath(workdir)
@@ -1044,9 +1047,9 @@ class Makefile(object):
 
         flavor, source, value = self.variables.get('VPATH')
         if value is None:
-            self.vpath = []
+            self._vpath = []
         else:
-            self.vpath = filter(lambda e: e != '', re.split('[:\s]+', value.resolve(self, self.variables, ['VPATH'])))
+            self._vpath = filter(lambda e: e != '', re.split('[:\s]+', value.resolve(self, self.variables, ['VPATH'])))
 
         targets = list(self._targets.itervalues())
         for t in targets:
@@ -1067,6 +1070,31 @@ class Makefile(object):
             self.gettarget(path).explicit = True
         elif required:
             raise DataError("Attempting to include file '%s' which doesn't exist." % (path,), loc)
+
+    def addvpath(self, pattern, dirs):
+        """
+        Add a directory to the vpath search for the given pattern.
+        """
+        self._patternvpaths.append((pattern, dirs))
+
+    def clearvpath(self, pattern):
+        """
+        Clear vpaths for the given pattern.
+        """
+        self._patternvpaths = [(p, dirs)
+                               for p, dirs in self._patternvpaths
+                               if not p.match(pattern)]
+
+    def clearallvpaths(self):
+        self._patternvpaths = []
+
+    def getvpath(self, target):
+        vp = list(self._vpath)
+        for p, dirs in self._patternvpaths:
+            if p.match(target):
+                vp.extend(dirs)
+
+        return withoutdups(vp)
 
     def remakemakefiles(self):
         reparse = False

@@ -23,8 +23,6 @@ KNOWN INCOMPATIBILITIES
 
 * Parallel builds (-j > 1) are not yet supported
 
-* The vpath directive is not yet supported
-
 * Order-only prerequisites are not yet supported
 
 * Secondary expansion is not yet supported.
