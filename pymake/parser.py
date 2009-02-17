@@ -637,8 +637,13 @@ def parsestream(fd, filename, makefile):
                 continue
 
             if kword in conditionkeywords:
-                m = conditionkeywords[kword](d, offset, makefile)
-                condstack.append(Condition(m, d.getloc(offset)))
+                if any((not c.active for c in condstack)):
+                    # If any conditions are currently false, we don't evaluate anything: just stick a dummy
+                    # condition on the stack
+                    condstack.append(Condition(True, d.getloc(offset)))
+                else:
+                    m = conditionkeywords[kword](d, offset, makefile)
+                    condstack.append(Condition(m, d.getloc(offset)))
                 continue
 
             if any((not c.active for c in condstack)):
