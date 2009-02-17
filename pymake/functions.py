@@ -2,8 +2,10 @@
 Makefile functions.
 """
 
+import pymake
 from pymake import data
 import subprocess, os, glob
+from cStringIO import StringIO
 
 log = data.log
 
@@ -497,7 +499,14 @@ class EvalFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        raise NotImplementedError('no eval yet')
+        if makefile.parsingfinished:
+            # GNU make allows variables to be set by recursive expansion during
+            # command execution. This seems really dumb to me, so I don't!
+            raise data.DataError("$(eval) not allowed via recursive expansion after parsing is finished", self.loc)
+
+        text = StringIO(self._arguments[0].resolve(makefile, variables, setting))
+        pymake.parser.parsestream(text, 'evaluation from %s' % self.loc, makefile)
+        return ''
 
 class OriginFunction(Function):
     name = 'origin'
