@@ -631,9 +631,12 @@ def parsestream(fd, filename, makefile):
                     if kword not in conditionkeywords:
                         raise SyntaxError("Unexpected condition after 'else' directive.",
                                           d.getloc(offset))
-                        
-                    m = conditionkeywords[kword](d, offset, makefile)
-                    condstack[-1].makeactive(m)
+
+                    if any ((not c.active for c in condstack[:-1])):
+                        pass
+                    else:
+                        m = conditionkeywords[kword](d, offset, makefile)
+                        condstack[-1].makeactive(m)
                 continue
 
             if kword in conditionkeywords:

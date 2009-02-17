@@ -1,6 +1,11 @@
 ifdef RANDOM
 ifeq (,$(error Not evaluated!))
-VAR = val
+endif
+endif
+
+ifdef RANDOM
+ifeq (,)
+else ifeq (,$(error Not evaluated!))
 endif
 endif
 
