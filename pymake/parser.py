@@ -18,7 +18,8 @@ After splitting data into parseable chunks, we use a recursive-descent parser to
 nest parenthesized syntax.
 """
 
-import logging, re, glob
+import logging, re
+from pymake.globrelative import hasglob, glob
 from pymake import data, functions
 from cStringIO import StringIO
 
@@ -561,11 +562,10 @@ class Condition(object):
 
 def expandwildcards(makefile, tlist):
     for t in tlist:
-        if t.find('*') == -1 and t.find('?') == -1 and t.find('[') == -1:
+        if not hasglob(t):
             yield t
         else:
-            l = glob.glob(t)
-            l.sort()
+            l = glob(makefile.workdir, t)
             for r in l:
                 yield r
 

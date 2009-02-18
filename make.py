@@ -112,10 +112,6 @@ makeflags = ''.join(shortflags) + ' ' + ' '.join(longflags)
 
 logging.basicConfig(level=loglevel, **logkwargs)
 
-if options.directory:
-    log.info("Switching to directory: %s" % options.directory)
-    os.chdir(options.directory)
-    
 if options.printdir:
     print "make.py[%i]: Entering directory '%s'" % (makelevel, os.getcwd())
     sys.stdout.flush()
@@ -133,7 +129,7 @@ try:
 
         while True:
             m = Makefile(restarts=i, make='%s %s' % (sys.executable, sys.argv[0]),
-                         makeflags=makeflags, makelevel=makelevel)
+                         makeflags=makeflags, makelevel=makelevel, workdir=options.directory)
 
             starttime = time.time()
             targets = parsecommandlineargs(m, arguments)

@@ -621,7 +621,8 @@ class Target(object):
 
                         for dir in searchdirs:
                             libpath = os.path.join(dir, libname)
-                            mtime = getmtime(libpath)
+                            fspath = os.path.join(makefile.workdir, libpath)
+                            mtime = getmtime(fspath)
                             if mtime is not None:
                                 self.vpathtarget = libpath
                                 self.mtime = mtime
@@ -637,7 +638,8 @@ class Target(object):
                        for dir in makefile.getvpath(self.target)]
 
         for t in search:
-            mtime = getmtime(t)
+            fspath = os.path.join(makefile.workdir, t)
+            mtime = getmtime(fspath)
             if mtime is not None:
                 self.vpathtarget = t
                 self.mtime = mtime
@@ -842,7 +844,7 @@ class Rule(object):
                     continue
                 if not isHidden:
                     print "%s $ %s" % (c.loc, cline)
-                r = subprocess.call(cline, shell=True, env=env)
+                r = subprocess.call(cline, shell=True, env=env, cwd=makefile.workdir)
                 if r != 0 and not ignoreErrors:
                     raise DataError("command '%s' failed, return code was %s" % (cline, r), c.loc)
 
@@ -944,7 +946,7 @@ class PatternRule(object):
                     continue
                 if not isHidden:
                     print "%s $ %s" % (c.loc, cline)
-                r = subprocess.call(cline, shell=True, env=env)
+                r = subprocess.call(cline, shell=True, env=env, cwd=makefile.workdir)
                 if r != 0 and not ignoreErrors:
                     raise DataError("command '%s' failed, return code was %s" % (cline, r), c.loc)
 
@@ -1070,8 +1072,10 @@ class Makefile(object):
         Include the makefile at `path`.
         """
         self.included.append(path)
-        if os.path.exists(path):
-            fd = open(path)
+
+        fspath = os.path.join(self.workdir, path)
+        if os.path.exists(fspath):
+            fd = open(fspath)
             self.variables.append('MAKEFILE_LIST', Variables.SOURCE_AUTOMATIC, path, None, self)
             pymake.parser.parsestream(fd, path, self)
             self.gettarget(path).explicit = True

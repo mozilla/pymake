@@ -4,7 +4,8 @@ Makefile functions.
 
 import pymake
 from pymake import data
-import subprocess, os, glob
+import subprocess, os
+from pymake.globrelative import glob
 from cStringIO import StringIO
 
 log = data.log
@@ -362,10 +363,11 @@ class WildcardFunction(Function):
 
     def resolve(self, makefile, variables, setting):
         # TODO: will need work when we support -C without actually changing the OS cwd
-        pattern = self._arguments[0].resolve(makefile, variables, setting)
+        patterns = data.splitwords(self._arguments[0].resolve(makefile, variables, setting))
 
-        r = glob.glob(pattern)
-        r.sort()
+        r = []
+        for p in patterns:
+            r.extend(glob(makefile.workdir, p))
         return ' '.join(r)
 
 class RealpathFunction(Function):
@@ -374,9 +376,10 @@ class RealpathFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        # TODO: will need work when we support -C without actually changing the OS cwd
-        return ' '.join((os.path.realpath(f)
-                         for f in data.splitwords(self._arguments[0].resolve(makefile, variables, setting))))
+        paths = data.splitwords(self._arguments[0].resolve(makefile, variables, setting))
+        fspaths = [os.path.join(makefile.workdir, path) for path in paths]
+        realpaths = [os.path.realpath(path) for path in fspaths]
+        return ' '.join(realpaths)
 
 class AbspathFunction(Function):
     name = 'abspath'
@@ -384,9 +387,10 @@ class AbspathFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        # TODO: will need work when we support -C without actually changing the OS cwd
-        return ' '.join((os.path.abspath(f)
-                         for f in data.splitwords(self._arguments[0].resolve(makefile, variables, setting))))
+        assert os.path.isabs(makefile.workdir)
+        paths = data.splitwords(self._arguments[0].resolve(makefile, variables, setting))
+        fspaths = [os.path.join(makefile.workdir, path) for path in paths]
+        return ' '.join(fspaths)
 
 class IfFunction(Function):
     name = 'if'
@@ -569,7 +573,7 @@ class ShellFunction(Function):
 
         log.debug("%s: running shell command '%s'" % (self.loc, cline))
 
-        p = subprocess.Popen(cline, shell=True, stdout=subprocess.PIPE)
+        p = subprocess.Popen(cline, shell=True, stdout=subprocess.PIPE, cwd=makefile.workdir)
         stdout, stderr = p.communicate()
 
         stdout = stdout.replace('\r\n', '\n')
