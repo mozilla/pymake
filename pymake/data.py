@@ -824,8 +824,6 @@ def executecommands(rule, target, makefile, prerequisites, stem):
         cstring = c.resolve(makefile, v)
         for cline in splitcommand(cstring):
             cline, isHidden, isRecursive, ignoreErrors = findmodifiers(cline)
-            if not len(cline) or cline.isspace():
-                continue
             if not isHidden:
                 print "%s $ %s" % (c.loc, cline)
             r = pymake.process.call(cline, env=env, cwd=makefile.workdir, loc=c.loc)
