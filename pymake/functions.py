@@ -567,6 +567,8 @@ class ShellFunction(Function):
     def resolve(self, makefile, variables, setting):
         cline = self._arguments[0].resolve(makefile, variables, setting)
 
+        log.debug("%s: running shell command '%s'" % (self.loc, cline))
+
         p = subprocess.Popen(cline, shell=True, stdout=subprocess.PIPE)
         stdout, stderr = p.communicate()
 

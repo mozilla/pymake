@@ -84,6 +84,8 @@ op.add_option('-j', '--jobs', type="int",
               dest="jobcount", default=1)
 op.add_option('--parse-profile',
               dest="parseprofile", default=None)
+op.add_option('--no-print-directory', action="store_false",
+              dest="printdir", default=True)
 
 arglist = sys.argv[1:] + parsemakeflags()
 
@@ -114,8 +116,9 @@ if options.directory:
     log.info("Switching to directory: %s" % options.directory)
     os.chdir(options.directory)
     
-print "make.py[%i]: Entering directory '%s'" % (makelevel, os.getcwd())
-sys.stdout.flush()
+if options.printdir:
+    print "make.py[%i]: Entering directory '%s'" % (makelevel, os.getcwd())
+    sys.stdout.flush()
 
 if len(options.makefiles) == 0:
     if os.path.exists('Makefile'):
@@ -170,8 +173,10 @@ try:
 
 except (DataError, SyntaxError, subprocess.CalledProcessError), e:
     print e
-    print "make.py[%i]: Leaving directory '%s'" % (makelevel, os.getcwd())
+    if options.printdir:
+        print "make.py[%i]: Leaving directory '%s'" % (makelevel, os.getcwd())
     sys.stdout.flush()
     sys.exit(2)
 
-print "make.py[%i]: Leaving directory '%s'" % (makelevel, os.getcwd())
+if options.printdir:
+    print "make.py[%i]: Leaving directory '%s'" % (makelevel, os.getcwd())
