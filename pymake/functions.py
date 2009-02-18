@@ -2,13 +2,13 @@
 Makefile functions.
 """
 
-import pymake
-from pymake import data
-import subprocess, os
+import parser
+import data
+import subprocess, os, logging
 from pymake.globrelative import glob
 from cStringIO import StringIO
 
-log = data.log
+log = logging.getLogger('pymake.data')
 
 class Function(object):
     """
@@ -512,7 +512,7 @@ class EvalFunction(Function):
             raise data.DataError("$(eval) not allowed via recursive expansion after parsing is finished", self.loc)
 
         text = StringIO(self._arguments[0].resolve(makefile, variables, setting))
-        pymake.parser.parsestream(text, 'evaluation from %s' % self.loc, makefile)
+        parser.parsestream(text, 'evaluation from %s' % self.loc, makefile)
         return ''
 
 class OriginFunction(Function):

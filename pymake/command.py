@@ -4,8 +4,7 @@ Logic to execute a command
 
 import os, subprocess, sys, logging, time
 from optparse import OptionParser
-from pymake.data import Makefile, DataError
-from pymake.parser import parsestream, parsecommandlineargs, SyntaxError
+import pymake.data, pymake.parser
 
 def parsemakeflags(env):
     makeflags = env.get('MAKEFLAGS', '')
@@ -34,7 +33,7 @@ def parsemakeflags(env):
         if c == '\\':
             i += 1
             if i == len(makeflags):
-                raise DataError("MAKEFLAGS has trailing backslash")
+                raise pymake.data.DataError("MAKEFLAGS has trailing backslash")
             c = makeflags[i]
             
         curopt += c
@@ -132,11 +131,11 @@ def main(args, env, cwd):
             i = 0
 
             while True:
-                m = Makefile(restarts=i, make='%s %s' % (sys.executable, sys.argv[0]),
-                             makeflags=makeflags, makelevel=makelevel, workdir=workdir)
+                m = pymake.data.Makefile(restarts=i, make='%s %s' % (sys.executable, sys.argv[0]),
+                                         makeflags=makeflags, makelevel=makelevel, workdir=workdir)
 
                 starttime = time.time()
-                targets = parsecommandlineargs(m, arguments)
+                targets = pymake.parser.parsecommandlineargs(m, arguments)
                 for f in options.makefiles:
                     m.include(f)
 
@@ -170,7 +169,7 @@ def main(args, env, cwd):
             m.gettarget(t).make(m, ['<command-line>'], [])
         log.info("Execution took %f seconds" % (time.time() - starttime,))
 
-    except (DataError, SyntaxError, subprocess.CalledProcessError), e:
+    except (pymake.data.DataError, pymake.parser.SyntaxError), e:
         print e
         if options.printdir:
             print "make.py[%i]: Leaving directory '%s'" % (makelevel, workdir)

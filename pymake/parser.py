@@ -19,8 +19,8 @@ nest parenthesized syntax.
 """
 
 import logging, re
+import data, functions
 from pymake.globrelative import hasglob, glob
-from pymake import data, functions
 from cStringIO import StringIO
 
 tabwidth = 4
@@ -398,13 +398,16 @@ def iterlines(fd):
         yield (lineno, line)
 
 def setvariable(resolvevariables, setvariables, makefile, vname, token, d, offset,
-                iterfunc=itermakefilechars, source=data.Variables.SOURCE_MAKEFILE,
+                iterfunc=itermakefilechars, source=None,
                 skipwhitespace=True):
     """
     Parse what's left in a data iterator di into a variable.
     """
     assert isinstance(resolvevariables, data.Variables)
     assert isinstance(setvariables, data.Variables)
+
+    if source is None:
+        source = data.Variables.SOURCE_MAKEFILE
 
     # print "setvariable: %r resvariables: %r setvariables: %r" % (vname, resolvevariables, setvariables)
 

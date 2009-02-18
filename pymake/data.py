@@ -2,8 +2,10 @@
 A representation of makefile data structures.
 """
 
-import logging, re, os, subprocess
-import pymake
+import logging, re, os
+import pymake.parser
+import pymake.functions
+import pymake.process
 
 log = logging.getLogger('pymake.data')
 
@@ -826,7 +828,7 @@ def executecommands(rule, target, makefile, prerequisites, stem):
                 continue
             if not isHidden:
                 print "%s $ %s" % (c.loc, cline)
-            r = subprocess.call(cline, shell=True, env=env, cwd=makefile.workdir)
+            r = pymake.process.call(cline, env=env, cwd=makefile.workdir, loc=c.loc)
             if r != 0 and not ignoreErrors:
                 raise DataError("command '%s' failed, return code was %s" % (cline, r), c.loc)
 
