@@ -656,7 +656,7 @@ class Target(object):
         self.mtime = None
         self.vpathtarget = self.target
 
-    def make(self, makefile, targetstack, rulestack, required=True):
+    def make(self, makefile, targetstack, rulestack, required=True, avoidremakeloop=False):
         """
         If we are out of date, make ourself.
 
@@ -681,18 +681,22 @@ class Target(object):
         elif self.isdoublecolon():
             for r in self.rules:
                 remake = False
-                if self.mtime is None:
-                    log.info("Remaking %s using rule at %s because it doesn't exist or is a forced target" % (self.target, r.loc))
-                    remake = True
                 if len(r.prerequisites) == 0:
-                    log.info("Remaking %s using rule at %s because there are no prerequisites listed for a double-colon rule." % (self.target, r.loc))
-                    remake = True
-                for p in r.prerequisites:
-                    dep = makefile.gettarget(p)
-                    didanything = dep.make(makefile, targetstack, []) or didanything
-                    if not remake and mtimeislater(dep.mtime, self.mtime):
-                        log.info(indent + "Remaking %s using rule at %s because %s is newer." % (self.target, r.loc, p))
+                    if avoidremakeloop:
+                        log.info("Not remaking %s using rule at %s because it would introduce an infinite loop." % (self.target, r.loc))
+                    else:
+                        log.info("Remaking %s using rule at %s because there are no prerequisites listed for a double-colon rule." % (self.target, r.loc))
                         remake = True
+                else:
+                    if self.mtime is None:
+                        log.info("Remaking %s using rule at %s because it doesn't exist or is a forced target" % (self.target, r.loc))
+                        remake = True
+                    for p in r.prerequisites:
+                        dep = makefile.gettarget(p)
+                        didanything = dep.make(makefile, targetstack, []) or didanything
+                        if not remake and mtimeislater(dep.mtime, self.mtime):
+                            log.info(indent + "Remaking %s using rule at %s because %s is newer." % (self.target, r.loc, p))
+                            remake = True
                 if remake:
                     self.remake()
                     r.execute(self, makefile)
@@ -1107,7 +1111,7 @@ class Makefile(object):
             t.explicit = True
             t.resolvevpath(self)
             oldmtime = t.mtime
-            t.make(self, [], [], required=False)
+            t.make(self, [], [], required=False, avoidremakeloop=True)
             if t.mtime != oldmtime:
                 log.info("included makefile '%s' was remade" % t.target)
                 reparse = True
