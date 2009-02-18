@@ -810,6 +810,26 @@ def findmodifiers(command):
 
     return command, isHidden, isRecursive, ignoreErrors
 
+def executecommands(rule, target, makefile, prerequisites, stem):
+    v = Variables(parent=target.variables)
+    setautomaticvariables(v, makefile, target, prerequisites)
+    if stem is not None:
+        setautomatic(v, '*', [stem])
+
+    env = makefile.getsubenvironment(v)
+
+    for c in rule.commands:
+        cstring = c.resolve(makefile, v)
+        for cline in splitcommand(cstring):
+            cline, isHidden, isRecursive, ignoreErrors = findmodifiers(cline)
+            if not len(cline) or cline.isspace():
+                continue
+            if not isHidden:
+                print "%s $ %s" % (c.loc, cline)
+            r = subprocess.call(cline, shell=True, env=env, cwd=makefile.workdir)
+            if r != 0 and not ignoreErrors:
+                raise DataError("command '%s' failed, return code was %s" % (cline, r), c.loc)
+
 class Rule(object):
     """
     A rule contains a list of prerequisites and a list of commands. It may also
@@ -830,23 +850,8 @@ class Rule(object):
     def execute(self, target, makefile):
         assert isinstance(target, Target)
 
-        v = Variables(parent=target.variables)
-        setautomaticvariables(v, makefile, target, self.prerequisites)
-        # TODO: $* in non-pattern rules sucks
-
-        env = makefile.getsubenvironment(v)
-
-        for c in self.commands:
-            cstring = c.resolve(makefile, v)
-            for cline in splitcommand(cstring):
-                cline, isHidden, isRecursive, ignoreErrors = findmodifiers(cline)
-                if not len(cline) or cline.isspace():
-                    continue
-                if not isHidden:
-                    print "%s $ %s" % (c.loc, cline)
-                r = subprocess.call(cline, shell=True, env=env, cwd=makefile.workdir)
-                if r != 0 and not ignoreErrors:
-                    raise DataError("command '%s' failed, return code was %s" % (cline, r), c.loc)
+        executecommands(self, target, makefile, self.prerequisites, stem=None)
+        # TODO: $* in non-pattern rules?
 
 class PatternRuleInstance(object):
     """
@@ -867,8 +872,7 @@ class PatternRuleInstance(object):
 
     def execute(self, target, makefile):
         assert isinstance(target, Target)
-
-        self.prule.execute(target, makefile, self.dir, self.stem)
+        executecommands(self, target, makefile, self.prerequisites, stem=self.dir + self.stem)
 
     def __str__(self):
         return "Pattern rule at %s with stem '%s', matchany: %s doublecolon: %s" % (self.loc,
@@ -927,28 +931,6 @@ class PatternRule(object):
 
     def prerequisitesforstem(self, dir, stem):
         return [p.resolve(dir, stem) for p in self.prerequisites]
-
-    def execute(self, target, makefile, dir, stem):
-        assert isinstance(target, Target)
-
-        v = Variables(parent=target.variables)
-        setautomaticvariables(v, makefile, target,
-                              self.prerequisitesforstem(dir, stem))
-        setautomatic(v, '*', [dir + stem])
-
-        env = makefile.getsubenvironment(v)
-
-        for c in self.commands:
-            cstring = c.resolve(makefile, v)
-            for cline in splitcommand(cstring):
-                cline, isHidden, isRecursive, ignoreErrors = findmodifiers(cline)
-                if not len(cline) or cline.isspace():
-                    continue
-                if not isHidden:
-                    print "%s $ %s" % (c.loc, cline)
-                r = subprocess.call(cline, shell=True, env=env, cwd=makefile.workdir)
-                if r != 0 and not ignoreErrors:
-                    raise DataError("command '%s' failed, return code was %s" % (cline, r), c.loc)
 
 class Makefile(object):
     def __init__(self, workdir=None, restarts=0, make=None, makeflags=None, makelevel=0):
