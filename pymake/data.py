@@ -952,8 +952,6 @@ class Makefile(object):
             workdir = os.getcwd()
         workdir = os.path.realpath(workdir)
         self.workdir = workdir
-        print "makefile workdir: %r" % (workdir,)
-
         self.variables.set('CURDIR', Variables.FLAVOR_SIMPLE,
                            Variables.SOURCE_AUTOMATIC, workdir)
 
