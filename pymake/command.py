@@ -6,6 +6,11 @@ import os, subprocess, sys, logging, time
 from optparse import OptionParser
 import pymake.data, pymake.parser
 
+# TODO: If this ever goes from relocatable package to system-installed, this may need to be
+# a configured-in path.
+
+makepypath = os.path.normpath(os.path.join(os.path.dirname(__file__), '../make.py'))
+
 def parsemakeflags(env):
     makeflags = env.get('MAKEFLAGS', '')
     makeflags = makeflags.strip()
@@ -58,30 +63,30 @@ DEALINGS IN THE SOFTWARE."""
 
 log = logging.getLogger('pymake.execution')
 
-op = OptionParser()
-op.add_option('-f', '--file', '--makefile',
-              action='append',
-              dest='makefiles',
-              default=[])
-op.add_option('-d',
-              action="store_true",
-              dest="verbose", default=False)
-op.add_option('--debug-log',
-              dest="debuglog", default=None)
-op.add_option('-C', '--directory',
-              dest="directory", default=None)
-op.add_option('-v', '--version', action="store_true",
-              dest="printversion", default=False)
-op.add_option('-j', '--jobs', type="int",
-              dest="jobcount", default=1)
-op.add_option('--parse-profile',
-              dest="parseprofile", default=None)
-op.add_option('--no-print-directory', action="store_false",
-              dest="printdir", default=True)
-
 def main(args, env, cwd):
     makelevel = int(env.get('MAKELEVEL', '0'))
     arglist = args + parsemakeflags(env)
+
+    op = OptionParser()
+    op.add_option('-f', '--file', '--makefile',
+                  action='append',
+                  dest='makefiles',
+                  default=[])
+    op.add_option('-d',
+                  action="store_true",
+                  dest="verbose", default=False)
+    op.add_option('--debug-log',
+                  dest="debuglog", default=None)
+    op.add_option('-C', '--directory',
+                  dest="directory", default=None)
+    op.add_option('-v', '--version', action="store_true",
+                  dest="printversion", default=False)
+    op.add_option('-j', '--jobs', type="int",
+                  dest="jobcount", default=1)
+    op.add_option('--parse-profile',
+                  dest="parseprofile", default=None)
+    op.add_option('--no-print-directory', action="store_false",
+                  dest="printdir", default=True)
 
     options, arguments = op.parse_args(arglist)
 
@@ -131,8 +136,9 @@ def main(args, env, cwd):
             i = 0
 
             while True:
-                m = pymake.data.Makefile(restarts=i, make='%s %s' % (sys.executable, sys.argv[0]),
-                                         makeflags=makeflags, makelevel=makelevel, workdir=workdir)
+                m = pymake.data.Makefile(restarts=i, make='%s %s' % (sys.executable, makepypath),
+                                         makeflags=makeflags, makelevel=makelevel, workdir=workdir,
+                                         env=env)
 
                 starttime = time.time()
                 targets = pymake.parser.parsecommandlineargs(m, arguments)
@@ -180,3 +186,4 @@ def main(args, env, cwd):
         print "make.py[%i]: Leaving directory '%s'" % (makelevel, workdir)
 
     sys.stdout.flush()
+    return 0

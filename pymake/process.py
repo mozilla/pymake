@@ -3,7 +3,8 @@ Skipping shell invocations is good, when possible. This wrapper around subproces
 parsing command lines into argv and making sure that no shell magic is being used.
 """
 
-import subprocess, shlex, re, logging
+import subprocess, shlex, re, logging, sys
+import command
 
 _log = logging.getLogger('pymake.execution')
 
@@ -34,6 +35,12 @@ def call(cline, env, cwd, loc):
 
     if not len(argv):
         return 0
+
+    if argv[0] == command.makepypath:
+        return command.main(argv[1:], env, cwd)
+
+    if argv[0:2] == [sys.executable, command.makepypath]:
+        return command.main(argv[2:], env, cwd)
 
     _log.debug("%s: skipping shell, no metacharacters found" % (loc,))
     return subprocess.call(argv, shell=False, env=env, cwd=cwd)

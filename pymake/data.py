@@ -178,8 +178,8 @@ class Variables(object):
         self._map = {}
         self.parent = parent
 
-    def readfromenvironment(self):
-        for k, v in os.environ.iteritems():
+    def readfromenvironment(self, env):
+        for k, v in env.iteritems():
             self.set(k, self.FLAVOR_SIMPLE, self.SOURCE_ENVIRONMENT, v)
 
     def get(self, name, expand=True):
@@ -933,11 +933,15 @@ class PatternRule(object):
         return [p.resolve(dir, stem) for p in self.prerequisites]
 
 class Makefile(object):
-    def __init__(self, workdir=None, restarts=0, make=None, makeflags=None, makelevel=0):
+    def __init__(self, workdir=None, env=None, restarts=0, make=None, makeflags=None, makelevel=0):
         self.defaulttarget = None
 
+        if env is None:
+            env = os.environ
+        self.env = env
+
         self.variables = Variables()
-        self.variables.readfromenvironment()
+        self.variables.readfromenvironment(env)
 
         self.exportedvars = set()
         self.overrides = []
@@ -1107,7 +1111,7 @@ class Makefile(object):
     flagescape = re.compile(r'([\s\\])')
 
     def getsubenvironment(self, variables):
-        env = dict(os.environ)
+        env = dict(self.env)
         for vname in self.exportedvars:
             flavor, source, val = variables.get(vname)
             if val is None:
