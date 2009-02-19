@@ -650,7 +650,7 @@ class Target(object):
         self.vpathtarget = self.target
         self.mtime = None
         
-    def remake(self):
+    def _beingremade(self):
         """
         When we remake ourself, we need to reset our mtime and vpathtarget.
 
@@ -702,7 +702,7 @@ class Target(object):
                             log.info(indent + "Remaking %s using rule at %s because %s is newer." % (self.target, r.loc, p))
                             remake = True
                 if remake:
-                    self.remake()
+                    self._beingremade()
                     r.execute(self, makefile)
                     didanything = True
         else:
@@ -724,7 +724,7 @@ class Target(object):
                         remake = True
 
             if remake:
-                self.remake()
+                self._beingremade()
                 if commandrule is not None:
                     commandrule.execute(self, makefile)
                 didanything = True
