@@ -80,7 +80,10 @@ class ParallelContext(object):
         _allcontexts.remove(self)
 
     def run(self):
-        while len(self.running) < self.jcount and len(self.pending):
+        while (len(self.running) < self.jcount) and len(self.pending):
+            _log.debug("context<%s>: pending: %i running: %i jcount: %i running a command" % (id(self), len(self.pending), len(self.running),
+                                                                                              self.jcount))
+
             argv, shell, env, cwd, cb, echo = self.pending.pop(0)
 
             if echo is not None:

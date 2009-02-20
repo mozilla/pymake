@@ -66,7 +66,6 @@ log = logging.getLogger('pymake.execution')
 def main(args, env, cwd, context, cb):
     try:
         makelevel = int(env.get('MAKELEVEL', '0'))
-        arglist = args + parsemakeflags(env)
 
         op = OptionParser()
         op.add_option('-f', '--file', '--makefile',
@@ -87,7 +86,10 @@ def main(args, env, cwd, context, cb):
         op.add_option('--no-print-directory', action="store_false",
                       dest="printdir", default=True)
 
-        options, arguments = op.parse_args(arglist)
+        options, arguments1 = op.parse_args(parsemakeflags(env))
+        options, arguments2 = op.parse_args(args, values=options)
+
+        arguments = arguments1 + arguments2
 
         if options.printversion:
             version()
