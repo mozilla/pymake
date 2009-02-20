@@ -19,7 +19,7 @@ nest parenthesized syntax.
 """
 
 import logging, re
-import data, functions
+import data, functions, util
 from pymake.globrelative import hasglob, glob
 from cStringIO import StringIO
 
@@ -27,13 +27,8 @@ tabwidth = 4
 
 log = logging.getLogger('pymake.parser')
 
-class SyntaxError(Exception):
-    def __init__(self, message, loc):
-        self.message = message
-        self.loc = loc
-
-    def __str__(self):
-        return "%s: %s" % (self.loc, self.message)
+class SyntaxError(util.MakeError):
+    pass
 
 class Location(object):
     """
