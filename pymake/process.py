@@ -31,7 +31,7 @@ def call(cline, env, cwd, loc, cb, context, echo):
     argv = clinetoargv(cline)
     #TODO: call this once up-front somewhere and save the result?
     shell, prependshell = util.checkmsyscompat()
-    if argv is None or (len(argv) and argv[0] in shellwords) or prependshell:
+    if argv is None or (len(argv) and argv[0] in shellwords):
         _log.debug("%s: Running command through shell because of shell metacharacters" % (loc,))
         if prependshell:
             cline = [shell, "-c", cline]
