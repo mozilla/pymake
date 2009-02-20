@@ -96,8 +96,12 @@ class Override(Statement):
     def execute(self, makefile, context):
         makefile.overrides.append(self.s)
 
+    def dump(self, fd, indent):
+        print >>fd, indent, "Override: %r" % (self.s,)
+
 class DummyRule(object):
     def addcommand(self, r):
+        _log.debug("Discarding rule at %s" % (r.loc,))
         pass
 
 class Rule(Statement):
@@ -133,6 +137,9 @@ class Rule(Statement):
             makefile.foundtarget(targets[0].gettarget())
 
         context.currule = rule
+
+    def dump(self, fd, indent):
+        print >>fd, indent, "Rule %s: %s" % (self.targetexp, self.depexp)
 
 class StaticPatternRule(Statement):
     def __init__(self, targetexp, patternexp, depexp, doublecolon):
@@ -172,6 +179,9 @@ class StaticPatternRule(Statement):
         makefile.foundtarget(targets[0])
         context.currule = rule
 
+    def dump(self, fd, indent):
+        print >>fd, indent, "StaticPatternRule %r: %r: %r" % (self.targetexp, self.patternexp, self.depexp)
+
 class Command(Statement):
     def __init__(self, exp):
         assert isinstance(exp, data.Expansion)
@@ -180,6 +190,9 @@ class Command(Statement):
     def execute(self, makefile, context):
         assert context.currule is not None
         context.currule.addcommand(self.exp)
+
+    def dump(self, fd, indent):
+        print >>fd, indent, "Command %r" % (self.exp,)
 
 class SetVariable(Statement):
     def __init__(self, vnameexp, token, value, valueloc, targetexp, source=None):
@@ -238,6 +251,9 @@ class SetVariable(Statement):
 
             v.set(vname, flavor, self.source, value)
 
+    def dump(self, fd, indent):
+        print >>fd, indent, "SetVariable %r value=%r" % (self.vnameexp, self.value)
+
 class Condition(object):
     """
     An abstract "condition", either ifeq or ifdef, perhaps negated. Subclasses must implement:
@@ -260,6 +276,9 @@ class EqCondition(Condition):
         r2 = self.exp2.resolve(makefile, makefile.variables)
         return (r1 == r2) == self.expected
 
+    def __str__(self):
+        return "ifeq (expected=%s) %r %r" % (self.expected, self.exp1, self.exp2)
+
 class IfdefCondition(Condition):
     expected = True
 
@@ -271,14 +290,22 @@ class IfdefCondition(Condition):
         vname = self.exp.resolve(makefile, makefile.variables)
         flavor, source, value = makefile.variables.get(vname, expand=False)
 
+        _log.debug("ifdef at %s: vname: %r value is %r" % (self.exp.loc, vname, value))
+
         if value is None:
-            return False
+            return not self.expected
 
         return (len(value) > 0) == self.expected
+
+    def __str__(self):
+        return "ifdef (expected=%s) %r" % (self.expected, self.exp)
 
 class ElseCondition(Condition):
     def evaluate(self, makefile):
         return True
+
+    def __str__(self):
+        return "else"
 
 class ConditionBlock(Statement):
     """
@@ -304,10 +331,25 @@ class ConditionBlock(Statement):
         self._groups[-1][1].append(statement)
 
     def execute(self, makefile, context):
+        i = 0
         for c, statements in self._groups:
             if c.evaluate(makefile):
+                _log.debug("Condition at %s met by clause #%i" % (self.loc, i))
                 statements.execute(makefile, context)
                 return
+
+            i += 1
+
+    def dump(self, fd, indent):
+        print >>fd, indent, "ConditionBlock"
+
+        indent1 = indent + ' '
+        indent2 = indent + '  '
+        for c, statements in self._groups:
+            print >>fd, indent1, "Condition %s" % (c,)
+            for s in statements:
+                s.dump(fd, indent2)
+        print >>fd, indent, "~ConditionBlock"
 
 class Include(Statement):
     def __init__(self, exp, required):
@@ -319,6 +361,9 @@ class Include(Statement):
         files = data.splitwords(self.exp.resolve(makefile, makefile.variables))
         for f in files:
             makefile.include(f, self.required, loc=self.exp.loc)
+
+    def dump(self, fd, indent):
+        print >>fd, indent, "Include %r" % (self.exp,)
 
 class VPathDirective(Statement):
     def __init__(self, exp):
@@ -343,6 +388,9 @@ class VPathDirective(Statement):
                 if len(dirs):
                     makefile.addvpath(pattern, dirs)
 
+    def dump(self, fd, indent):
+        print >>fd, indent, "VPath %r" % (self.exp,)
+
 class ExportDirective(Statement):
     def __init__(self, exp, single):
         assert isinstance(exp, data.Expansion)
@@ -360,6 +408,9 @@ class ExportDirective(Statement):
         for v in vlist:
             makefile.exportedvars.add(v)
 
+    def dump(self, fd, indent):
+        print >>fd, indent, "Export (single=%s) %r" % (self.single, self.exp)
+
 class EmptyDirective(Statement):
     def __init__(self, exp):
         assert isinstance(exp, data.Expansion)
@@ -369,6 +420,9 @@ class EmptyDirective(Statement):
         v = self.exp.resolve(makefile, makefile.variables)
         if v.strip() != '':
             raise data.DataError("Line expands to non-empty value", self.exp.loc)
+
+    def dump(self, fd, indent):
+        print >>fd, indent, "EmptyDirective: %r" % self.exp
 
 class StatementList(list):
     def append(self, statement):
@@ -381,3 +435,11 @@ class StatementList(list):
 
         for s in self:
             s.execute(makefile, context)
+
+    def __str__(self):
+        fd = StringIO()
+        print >>fd, "StatementList"
+        for s in self:
+            s.dump(fd, ' ')
+        print >>fd, "~StatementList"
+        return fd.getvalue()

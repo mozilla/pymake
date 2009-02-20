@@ -46,6 +46,11 @@ else           \
 endif
 endif
 
+ifndef ASDFJK
+else
+$(error ASFDJK was not set)
+endif
+
 TESTSET =
 
 ifdef TESTSET
