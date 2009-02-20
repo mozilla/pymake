@@ -4,7 +4,7 @@ Logic to execute a command
 
 import os, subprocess, sys, logging, time, traceback
 from optparse import OptionParser
-import data, parser, process, util
+import data, parserdata, process, util
 
 # TODO: If this ever goes from relocatable package to system-installed, this may need to be
 # a configured-in path.
@@ -144,8 +144,10 @@ def main(args, env, cwd, context, cb):
                 cb(2)
                 return
 
+        overrides, targets = parserdata.parsecommandlineargs(arguments)
+
         # subvert python readonly closures
-        o = util.makeobject(('restarts', 'm', 'targets', 'remade', 'error'),
+        o = util.makeobject(('restarts', 'm', 'remade', 'error'),
                             restarts=-1)
 
         def remakecb(remade):
@@ -157,7 +159,7 @@ def main(args, env, cwd, context, cb):
                                     makeflags=makeflags, makelevel=makelevel, workdir=workdir,
                                     context=context, env=env)
 
-                o.targets = parser.parsecommandlineargs(o.m, arguments)
+                overrides.execute(o.m)
                 for f in options.makefiles:
                     o.m.include(f)
 
@@ -165,14 +167,15 @@ def main(args, env, cwd, context, cb):
                 o.m.remakemakefiles(remakecb)
                 return
 
-            if len(o.targets) == 0:
+            if len(targets) == 0:
                 if o.m.defaulttarget is None:
                     print "No target specified and no default target found."
                     cb(2)
                     return
-                o.targets = [o.m.defaulttarget]
+                finaltargets = [o.m.defaulttarget]
                 tstack = ['<default-target>']
             else:
+                finaltargets = targets
                 tstack = ['<command-line>']
 
             def makecb(error, didanything):
@@ -184,7 +187,7 @@ def main(args, env, cwd, context, cb):
                     print error
                     o.error = True
 
-                if o.remade == len(o.targets):
+                if o.remade == len(finaltargets):
                     if subcontext:
                         context.finish()
 
@@ -197,7 +200,7 @@ def main(args, env, cwd, context, cb):
             o.remade = 0
             o.error = False
 
-            for t in o.targets:
+            for t in finaltargets:
                 o.m.gettarget(t).make(o.m, ['<command-line>'], [], cb=makecb)
 
         remakecb(True)

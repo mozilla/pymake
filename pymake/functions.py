@@ -512,7 +512,8 @@ class EvalFunction(Function):
             raise data.DataError("$(eval) not allowed via recursive expansion after parsing is finished", self.loc)
 
         text = StringIO(self._arguments[0].resolve(makefile, variables, setting))
-        parser.parsestream(text, 'evaluation from %s' % self.loc, makefile)
+        stmts = parser.parsestream(text, 'evaluation from %s' % self.loc)
+        stmts.execute(makefile)
         return ''
 
 class OriginFunction(Function):
