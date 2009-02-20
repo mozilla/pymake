@@ -3,7 +3,7 @@ Skipping shell invocations is good, when possible. This wrapper around subproces
 parsing command lines into argv and making sure that no shell magic is being used.
 """
 
-import subprocess, shlex, re, logging, sys, threading, traceback
+import subprocess, shlex, re, logging, sys, traceback, os
 import command
 
 _log = logging.getLogger('pymake.process')
@@ -49,6 +49,16 @@ def call(cline, env, cwd, loc, cb, context, echo):
     _log.debug("%s: skipping shell, no metacharacters found" % (loc,))
     context.call(argv, shell=False, env=env, cwd=cwd, cb=cb, echo=echo)
 
+def statustoresult(status):
+    """
+    Convert the status returned from waitpid into a prettier numeric result.
+    """
+    sig = status & 0xFF
+    if sig:
+        return -sig
+
+    return status >>8
+
 class ParallelContext(object):
     """
     Manages the parallel execution of processes.
@@ -58,46 +68,17 @@ class ParallelContext(object):
         self.jcount = jcount
         self.exit = False
 
-        self.lock = threading.Lock()
-        self.threadcount = 0
+        self.pending = [] # list of (argv, shell, env, cwd, cb, echo)
+        self.running = [] # list of (subprocess, cb)
 
-        self.notifypending = threading.Condition(self.lock)
-        self.pending = []
-        self.running = 0
+    def run(self):
+        while len(self.running) < self.jcount and len(self.pending):
+            argv, shell, env, cwd, cb, echo = self.pending.pop(0)
 
-        self.notifyresult = threading.Condition(self.lock)
-        self.results = []
-
-    def _run(self):
-        self.notifypending.acquire()
-        try:
-            while True:
-                if len(self.pending) == 0:
-                    self.notifypending.wait()
-                    continue
-
-                argv, shell, env, cwd, cb, echo, idx = self.pending.pop(0)
-                self.running += 1
-
-                _log.debug("running <%i>: pending: %i running %i threads: %i: results: %i" % (idx,
-                                                                                              len(self.pending),
-                                                                                              self.running,
-                                                                                              self.threadcount,
-                                                                                              len(self.results)))
-
-                self.notifypending.release()
-                if echo is not None:
-                    print echo
-                res = subprocess.call(argv, shell=shell, env=env, cwd=cwd)
-                self.notifypending.acquire()
-
-                self.running -= 1
-                self.results.append((cb, res, idx))
-                self.notifyresult.notify()
-
-                continue
-        finally:
-            self.notifypending.release()
+            if echo is not None:
+                print echo
+            p = subprocess.Popen(argv, shell=shell, env=env, cwd=cwd)
+            self.running.append((p, cb))
 
     counter = 0
 
@@ -105,58 +86,30 @@ class ParallelContext(object):
         """
         Asynchronously call the process
         """
-        self.notifypending.acquire()
-        try:
-            idx = ParallelContext.counter
-            ParallelContext.counter += 1
 
-            _log.debug("call <%i>: pending: %i running %i threads: %i: results: %i: %r" % (idx,
-                                                                                           len(self.pending),
-                                                                                           self.running,
-                                                                                           self.threadcount,
-                                                                                           len(self.results), argv))
-
-            self.pending.append((argv, shell, env, cwd, cb, echo, idx))
-            self.notifypending.notify()
-            if len(self.pending) and self.threadcount < self.jcount:
-                _log.debug("Creating a new thread for process execution")
-                self.threadcount += 1
-                t = threading.Thread(target=self._run)
-                t.setDaemon(True)
-                t.start()
-        finally:
-            self.notifypending.release()
+        self.pending.append((argv, shell, env, cwd, cb, echo))
+        self.run()
 
     def spin(self):
         """
         Spin the 'event loop', and return only when it is empty.
         """
-        self.notifyresult.acquire()
-        while True:
-            _log.debug("spin: pending: %i running %i threads: %i results: %i" % (len(self.pending),
-                                                                                 self.running,
-                                                                                 self.threadcount,
-                                                                                 len(self.results)))
-            if len(self.results) > 0:
-                lresults = self.results
-                self.results = []
-                self.notifyresult.release()
-                try:
-                    for cb, res, idx in lresults:
-                        _log.debug("results of <%i>: %s" % (idx, res))
-                        try:
-                            cb(res)
-                        except Exception, e:
-                            _log.debug("Exception throwing during callback: %s" % (e,))
-                            raise
-                finally:
-                    self.notifyresult.acquire()
 
-            if len(self.pending) == 0 and self.running == 0 and len(self.results) == 0:
-                _log.debug("exiting spin")
-                self.notifyresult.release()
-                return
+        while len(self.pending) or len(self.running):
+            self.run()
+            assert len(self.running)
 
-            self.notifyresult.wait(20)
-            if len(self.results) == 0:
-                raise Exception("wait timeout")
+            _log.debug("spin: pending: %i running %i" % (len(self.pending),
+                                                         len(self.running)))
+            
+            pid, status = os.waitpid(-1, 0)
+            result = statustoresult(status)
+
+            for i in xrange(0, len(self.running)):
+                p, cb = self.running[i]
+                if p.pid == pid:
+                    cb(result)
+                    del self.running[i]
+                    break
+
+        _log.debug("exiting spin")
