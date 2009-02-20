@@ -83,7 +83,7 @@ def main(args, env, cwd, context, cb):
         op.add_option('-v', '--version', action="store_true",
                       dest="printversion", default=False)
         op.add_option('-j', '--jobs', type="int",
-                      dest="jobcount", default=None)
+                      dest="jobcount", default=1)
         op.add_option('--no-print-directory', action="store_false",
                       dest="printdir", default=True)
 
@@ -112,6 +112,8 @@ def main(args, env, cwd, context, cb):
         else:
             workdir = os.path.join(cwd, options.directory)
 
+        shortflags.append('j%i' % (options.jobcount,))
+
         makeflags = ''.join(shortflags) + ' ' + ' '.join(longflags)
 
         logging.basicConfig(level=loglevel, **logkwargs)
@@ -121,8 +123,6 @@ def main(args, env, cwd, context, cb):
             wait = True
             context = process.ParallelContext(options.jobcount)
         elif context is None:
-            if options.jobcount is None:
-                options.jobcount = 1
             log.debug("Creating new execution context, jobcount %s" % options.jobcount)
             wait = True
             context = process.ParallelContext(options.jobcount)
