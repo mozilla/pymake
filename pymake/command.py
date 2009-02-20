@@ -153,7 +153,7 @@ def main(args, env, cwd, context, cb):
                 o.restarts += 1
                 if o.restarts > 0:
                     log.info("make.py[%i]: Restarting makefile parsing" % (makelevel,))
-                o.m = data.Makefile(restarts=o.restarts, make='%s %s' % (sys.executable, makepypath),
+                o.m = data.Makefile(restarts=o.restarts, make='%s %s' % (sys.executable.replace('\\', '/'), makepypath.replace('\\', '/')),
                                     makeflags=makeflags, makelevel=makelevel, workdir=workdir,
                                     context=context, env=env)
 

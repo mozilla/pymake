@@ -4,6 +4,7 @@ Makefile functions.
 
 import parser
 import data
+import util
 import subprocess, os, logging
 from pymake.globrelative import glob
 from cStringIO import StringIO
@@ -569,7 +570,8 @@ class ShellFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        shell, prependshell = data.checkmsyscompat()
+        #TODO: call this once up-front somewhere and save the result?
+        shell, prependshell = util.checkmsyscompat()
         cline = self._arguments[0].resolve(makefile, variables, setting)
 
         log.debug("%s: running shell command '%s'" % (self.loc, cline))

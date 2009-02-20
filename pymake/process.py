@@ -4,7 +4,7 @@ parsing command lines into argv and making sure that no shell magic is being use
 """
 
 import subprocess, shlex, re, logging, sys, traceback, os
-import command
+import command, util
 
 _log = logging.getLogger('pymake.process')
 
@@ -29,9 +29,13 @@ shellwords = (':', '.', 'break', 'cd', 'continue', 'exec', 'exit', 'export',
 
 def call(cline, env, cwd, loc, cb, context, echo):
     argv = clinetoargv(cline)
-    if argv is None or (len(argv) and argv[0] in shellwords):
+    #TODO: call this once up-front somewhere and save the result?
+    shell, prependshell = util.checkmsyscompat()
+    if argv is None or (len(argv) and argv[0] in shellwords) or prependshell:
         _log.debug("%s: Running command through shell because of shell metacharacters" % (loc,))
-        context.call(cline, shell=True, env=env, cwd=cwd, cb=cb, echo=echo)
+        if prependshell:
+            cline = [shell, "-c", cline]
+        context.call(cline, shell=not prependshell, env=env, cwd=cwd, cb=cb, echo=echo)
         return
 
     if not len(argv):
@@ -42,7 +46,8 @@ def call(cline, env, cwd, loc, cb, context, echo):
         command.main(argv[1:], env, cwd, context, cb)
         return
 
-    if argv[0:2] == [sys.executable, command.makepypath]:
+    if argv[0:2] == [sys.executable.replace('\\', '/'),
+                     command.makepypath.replace('\\', '/')]:
         command.main(argv[2:], env, cwd, context, cb)
         return
 
