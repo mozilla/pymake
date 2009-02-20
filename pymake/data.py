@@ -6,17 +6,12 @@ import logging, re, os
 import pymake.parser
 import pymake.functions
 import pymake.process
+import pymake.util
 
 log = logging.getLogger('pymake.data')
 
-class DataError(Exception):
-    def __init__(self, message, loc=None):
-        self.message = message
-        self.loc = loc
-
-    def __str__(self):
-        return "%s: %s" % (self.loc and self.loc or "internal error",
-                           self.message)
+class DataError(pymake.util.MakeError):
+    pass
 
 class ResolutionError(DataError):
     """
@@ -402,6 +397,10 @@ class Pattern(object):
 
         return self.backre.sub(r'\\\1', self.data[0]) + '%' + self.data[1]
 
+MAKESTATE_NONE = 0
+MAKESTATE_FINISHED = 1
+MAKESTATE_WORKING = 2
+
 class Target(object):
     """
     An actual (non-pattern) target.
@@ -420,12 +419,7 @@ class Target(object):
         self.rules = []
         self.variables = Variables(makefile.variables)
         self.explicit = False
-
-        # self.remade is a tri-state:
-        #   None - we haven't remade yet
-        #   True - we did something to remake ourself
-        #   False - we did nothing to remake ourself
-        self.remade = None
+        self._state = MAKESTATE_NONE
 
     def addrule(self, rule):
         assert isinstance(rule, (Rule, PatternRuleInstance))
@@ -660,77 +654,176 @@ class Target(object):
         self.mtime = None
         self.vpathtarget = self.target
 
-    def make(self, makefile, targetstack, rulestack, required=True, avoidremakeloop=False):
+    def _notifyerror(self, e):
+        log.debug("Making target '%s' failed with error %s" % (self.target, e))
+
+        if self._state == MAKESTATE_FINISHED:
+            # multiple callbacks failed. The first one already finished us, so we ignore this one
+            return
+
+        self._state = MAKESTATE_FINISHED
+        self._makeerror = e
+        for cb in self._callbacks:
+            cb(error=e, didanything=None)
+        del self._callbacks 
+
+    def _notifysuccess(self, didanything):
+        log.debug("Making target '%s' succeeded" % (self.target,))
+
+        self._state = MAKESTATE_FINISHED
+        self._makeerror = None
+        self._didanything = didanything
+
+        for cb in self._callbacks:
+            cb(error=None, didanything=didanything)
+
+        del self._callbacks
+
+    def make(self, makefile, targetstack, rulestack, cb, required=True, avoidremakeloop=False):
         """
-        If we are out of date, make ourself.
+        If we are out of date, asynchronously make ourself. This is a multi-stage process, mostly handled
+        by enclosed functions:
 
-        For now, making is synchronous/serialized. -j magic will come later.
+        * resolve dependencies (synchronous)
+        * remake dependencies (asynchronous, toplevel, callback is `depcallback`
+        * build list of commands to execute (synchronous, in `makeself`)
+        * execute each command (asynchronous, makeself.commandcb)
 
-        @returns True if anything was done to remake this target
+        @param cb A callback function to notify when remaking is finished. It is called
+               thusly: callback(error=exception/None, didanything=True/False/None)
+               If there is no asynchronous activity to perform, the callback may be called directly.
         """
-        if self.remade is not None:
-            return self.remade
+        if self._state == MAKESTATE_FINISHED:
+            if self._makeerror is not None:
+                log.debug("Already made target '%s', got error %s" % (self.target, self._makeerror))
+                cb(error=self._makeerror)
+            else:
+                log.debug("Already made target '%s'" % (self.target,))
+                cb(error=None, didanything=self._didanything)
+            return
+            
+        if self._state == MAKESTATE_WORKING:
+            log.debug("Already making target '%s', adding callback. targetstack %r" % (self.target, targetstack))
+            self._callbacks.append(cb)
+            return
 
-        self.resolvedeps(makefile, targetstack, rulestack, required)
-        assert self.vpathtarget is not None, "Target was never resolved!"
+        assert self._state == MAKESTATE_NONE
+        log.debug("Starting to make target '%s', targetstack %r" % (self.target, targetstack))
 
-        targetstack = targetstack + [self.target]
+        self._state = MAKESTATE_WORKING
+        self._callbacks = [cb]
 
         indent = getindent(targetstack)
 
-        didanything = False
+        # this object exists solely as a container to subvert python's read-only closures
+        o = pymake.util.makeobject(('unmadedeps', 'didanything', 'error'))
+        
+        def depcallback(error, didanything):
+            assert self._state == MAKESTATE_WORKING
 
-        if len(self.rules) == 0:
-            pass
-        elif self.isdoublecolon():
-            for r in self.rules:
-                remake = False
-                if len(r.prerequisites) == 0:
-                    if avoidremakeloop:
-                        log.info("Not remaking %s using rule at %s because it would introduce an infinite loop." % (self.target, r.loc))
-                    else:
-                        log.info("Remaking %s using rule at %s because there are no prerequisites listed for a double-colon rule." % (self.target, r.loc))
-                        remake = True
-                else:
-                    if self.mtime is None:
-                        log.info("Remaking %s using rule at %s because it doesn't exist or is a forced target" % (self.target, r.loc))
-                        remake = True
-                    for p in r.prerequisites:
-                        dep = makefile.gettarget(p)
-                        didanything = dep.make(makefile, targetstack, []) or didanything
-                        if not remake and mtimeislater(dep.mtime, self.mtime):
-                            log.info(indent + "Remaking %s using rule at %s because %s is newer." % (self.target, r.loc, p))
+            if error is not None:
+                o.error = error
+            else:
+                assert didanything is not None
+                if didanything:
+                    o.didanything = True
+
+            o.unmadedeps -= 1
+
+            if o.unmadedeps != 0:
+                return
+
+            if o.error:
+                self._notifyerror(o.error)
+            else:
+                makeself()
+
+        def makeself():
+            """
+            Asynchronous dependency-making is finished. Now gather and asynchronously run our own commands.
+            """
+            commands = []
+            if len(self.rules) == 0:
+                pass
+            elif self.isdoublecolon():
+                for r, deps in _resolvedrules:
+                    remake = False
+                    if len(deps) == 0:
+                        if avoidremakeloop:
+                            log.info(indent + "Not remaking %s using rule at %s because it would introduce an infinite loop." % (self.target, r.loc))
+                        else:
+                            log.info(indent + "Remaking %s using rule at %s because there are no prerequisites listed for a double-colon rule." % (self.target, r.loc))
                             remake = True
+                    else:
+                        if self.mtime is None:
+                            log.info(indent + "Remaking %s using rule at %s because it doesn't exist or is a forced target" % (self.target, r.loc))
+                            remake = True
+                        else:
+                            for d in deps:
+                                if mtimeislater(d.mtime, self.mtime):
+                                    log.info(indent + "Remaking %s using rule at %s because %s is newer." % (self.target, r.loc, d.target))
+                                    remake = True
+                                    break
+                    if remake:
+                        self._beingremade()
+                        commands.extend(r.getcommands(self, makefile))
+            else:
+                commandrule = None
+                remake = False
+                if self.mtime is None:
+                    log.info(indent + "Remaking %s because it doesn't exist or is a forced target" % (self.target,))
+                    remake = True
+
+                for r, deps in _resolvedrules:
+                    if len(r.commands):
+                        assert commandrule is None, "Two command rules for a single-colon target?"
+                        commandrule = r
+
+                    if not remake:
+                        for d in deps:
+                            if mtimeislater(d.mtime, self.mtime):
+                                log.info(indent + "Remaking %s because %s is newer" % (self.target, d.target))
+                                remake = True
+
                 if remake:
                     self._beingremade()
-                    r.execute(self, makefile)
-                    didanything = True
-        else:
-            commandrule = None
-            remake = False
-            if self.mtime is None:
-                log.info(indent + "Remaking %s because it doesn't exist or is a forced target" % (self.target,))
-                remake = True
+                    if commandrule is not None:
+                        commands.extend(commandrule.getcommands(self, makefile))
 
-            for r in self.rules:
-                if len(r.commands):
-                    assert commandrule is None, "Two command rules for a single-colon target?"
-                    commandrule = r
-                for p in r.prerequisites:
-                    dep = makefile.gettarget(p)
-                    didanything = dep.make(makefile, targetstack, []) or didanything
-                    if not remake and mtimeislater(dep.mtime, self.mtime):
-                        log.info(indent + "Remaking %s because %s is newer" % (self.target, p))
-                        remake = True
+            def commandcb(error):
+                if error is not None:
+                    self._notifyerror(error)
+                    return
 
-            if remake:
-                self._beingremade()
-                if commandrule is not None:
-                    commandrule.execute(self, makefile)
-                didanything = True
+                if len(commands):
+                    commands.pop(0)(commandcb)
+                else:
+                    self._notifysuccess(o.didanything)
 
-        self.remade = didanything
-        return didanything
+            commandcb(None)
+                    
+        try:
+            self.resolvedeps(makefile, targetstack, rulestack, required)
+            assert self.vpathtarget is not None, "Target was never resolved!"
+
+            _resolvedrules = [(r, [makefile.gettarget(p) for p in r.prerequisites]) for r in self.rules]
+            log.debug("resolvedrules for %r: %r" % (self.target, _resolvedrules))
+
+            targetstack = targetstack + [self.target]
+
+            o.didanything = False
+            o.unmadedeps = 1
+            o.error = None
+
+            for r, deps in _resolvedrules:
+                for d in deps:
+                    o.unmadedeps += 1
+                    d.make(makefile, targetstack, [], cb=depcallback)
+
+            depcallback(error=None, didanything=False)
+        
+        except pymake.util.MakeError, e:
+            self._notifyerror(e)
 
 def dirpart(p):
     d, s, f = p.rpartition('/')
@@ -751,7 +844,6 @@ def setautomatic(v, name, plist):
 def setautomaticvariables(v, makefile, target, prerequisites):
     prtargets = [makefile.gettarget(p) for p in prerequisites]
     prall = [pt.vpathtarget for pt in prtargets]
-
     proutofdate = [pt.vpathtarget for pt in withoutdups(prtargets)
                    if target.realmtime is None or mtimeislater(pt.mtime, target.realmtime)]
     
@@ -812,7 +904,25 @@ def findmodifiers(command):
 
     return command, isHidden, isRecursive, ignoreErrors
 
-def executecommands(rule, target, makefile, prerequisites, stem):
+class CommandWrapper(object):
+    def __init__(self, cline, ignoreErrors, loc, context, **kwargs):
+        self.ignoreErrors = ignoreErrors
+        self.loc = loc
+        self.cline = cline
+        self.kwargs = kwargs
+        self.context = context
+
+    def _cb(self, res):
+        if res != 0 and not self.ignoreErrors:
+            self.usercb(error=DataError("command '%s' failed, return code %s" % (self.cline, res), self.loc))
+        else:
+            self.usercb(error=None)
+
+    def __call__(self, cb):
+        self.usercb = cb
+        pymake.process.call(self.cline, loc=self.loc, cb=self._cb, context=self.context, **self.kwargs)
+
+def getcommandsforrule(rule, target, makefile, prerequisites, stem):
     v = Variables(parent=target.variables)
     setautomaticvariables(v, makefile, target, prerequisites)
     if stem is not None:
@@ -824,11 +934,12 @@ def executecommands(rule, target, makefile, prerequisites, stem):
         cstring = c.resolve(makefile, v)
         for cline in splitcommand(cstring):
             cline, isHidden, isRecursive, ignoreErrors = findmodifiers(cline)
-            if not isHidden:
-                print "%s $ %s" % (c.loc, cline)
-            r = pymake.process.call(cline, env=env, cwd=makefile.workdir, loc=c.loc)
-            if r != 0 and not ignoreErrors:
-                raise DataError("command '%s' failed, return code was %s" % (cline, r), c.loc)
+            if isHidden:
+                echo = None
+            else:
+                echo = "%s$ %s" % (c.loc, cline)
+            yield CommandWrapper(cline, ignoreErrors=ignoreErrors, env=env, cwd=makefile.workdir, loc=c.loc, context=makefile.context,
+                                 echo=echo)
 
 class Rule(object):
     """
@@ -847,10 +958,10 @@ class Rule(object):
         assert(isinstance(c, Expansion))
         self.commands.append(c)
 
-    def execute(self, target, makefile):
+    def getcommands(self, target, makefile):
         assert isinstance(target, Target)
 
-        executecommands(self, target, makefile, self.prerequisites, stem=None)
+        return getcommandsforrule(self, target, makefile, self.prerequisites, stem=None)
         # TODO: $* in non-pattern rules?
 
 class PatternRuleInstance(object):
@@ -870,9 +981,9 @@ class PatternRuleInstance(object):
         self.ismatchany = ismatchany
         self.commands = prule.commands
 
-    def execute(self, target, makefile):
+    def getcommands(self, target, makefile):
         assert isinstance(target, Target)
-        executecommands(self, target, makefile, self.prerequisites, stem=self.dir + self.stem)
+        return getcommandsforrule(self, target, makefile, self.prerequisites, stem=self.dir + self.stem)
 
     def __str__(self):
         return "Pattern rule at %s with stem '%s', matchany: %s doublecolon: %s" % (self.loc,
@@ -933,7 +1044,7 @@ class PatternRule(object):
         return [p.resolve(dir, stem) for p in self.prerequisites]
 
 class Makefile(object):
-    def __init__(self, workdir=None, env=None, restarts=0, make=None, makeflags=None, makelevel=0):
+    def __init__(self, workdir=None, env=None, restarts=0, make=None, makeflags=None, makelevel=0, context=None):
         self.defaulttarget = None
 
         if env is None:
@@ -943,6 +1054,7 @@ class Makefile(object):
         self.variables = Variables()
         self.variables.readfromenvironment(env)
 
+        self.context = context
         self.exportedvars = set()
         self.overrides = []
         self._targets = {}
@@ -1093,20 +1205,35 @@ class Makefile(object):
 
         return withoutdups(vp)
 
-    def remakemakefiles(self):
+    def remakemakefiles(self, cb):
         reparse = False
 
+        o = pymake.util.makeobject(('remadecount',),
+                                   remadecount = 0)
+
+        def remakecb(error, didanything):
+            if error is not None:
+                print "Error remaking makefiles (ignored): ", error
+
+            o.remadecount += 1
+            if o.remadecount == len(self.included):
+                assert len(mlist) == len(self.included)
+
+                for t, oldmtime in mlist:
+                    if t.mtime != oldmtime:
+                        cb(remade=True)
+                        return
+                cb(remade=False)
+
+        mlist = []
         for f in self.included:
             t = self.gettarget(f)
             t.explicit = True
             t.resolvevpath(self)
             oldmtime = t.mtime
-            t.make(self, [], [], required=False, avoidremakeloop=True)
-            if t.mtime != oldmtime:
-                log.info("included makefile '%s' was remade" % t.target)
-                reparse = True
 
-        return reparse
+            mlist.append((t, oldmtime))
+            t.make(self, [], [], required=False, avoidremakeloop=True, cb=remakecb)
 
     flagescape = re.compile(r'([\s\\])')
 

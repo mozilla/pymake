@@ -2,9 +2,9 @@
 Logic to execute a command
 """
 
-import os, subprocess, sys, logging, time
+import os, subprocess, sys, logging, time, traceback
 from optparse import OptionParser
-import pymake.data, pymake.parser
+import data, parser, process, util
 
 # TODO: If this ever goes from relocatable package to system-installed, this may need to be
 # a configured-in path.
@@ -38,7 +38,7 @@ def parsemakeflags(env):
         if c == '\\':
             i += 1
             if i == len(makeflags):
-                raise pymake.data.DataError("MAKEFLAGS has trailing backslash")
+                raise data.DataError("MAKEFLAGS has trailing backslash")
             c = makeflags[i]
             
         curopt += c
@@ -63,127 +63,149 @@ DEALINGS IN THE SOFTWARE."""
 
 log = logging.getLogger('pymake.execution')
 
-def main(args, env, cwd):
-    makelevel = int(env.get('MAKELEVEL', '0'))
-    arglist = args + parsemakeflags(env)
-
-    op = OptionParser()
-    op.add_option('-f', '--file', '--makefile',
-                  action='append',
-                  dest='makefiles',
-                  default=[])
-    op.add_option('-d',
-                  action="store_true",
-                  dest="verbose", default=False)
-    op.add_option('--debug-log',
-                  dest="debuglog", default=None)
-    op.add_option('-C', '--directory',
-                  dest="directory", default=None)
-    op.add_option('-v', '--version', action="store_true",
-                  dest="printversion", default=False)
-    op.add_option('-j', '--jobs', type="int",
-                  dest="jobcount", default=1)
-    op.add_option('--parse-profile',
-                  dest="parseprofile", default=None)
-    op.add_option('--no-print-directory', action="store_false",
-                  dest="printdir", default=True)
-
-    options, arguments = op.parse_args(arglist)
-
-    if options.printversion:
-        version()
-        return 0
-
-    shortflags = []
-    longflags = []
-
-    loglevel = logging.WARNING
-    if options.verbose:
-        loglevel = logging.DEBUG
-        shortflags.append('d')
-
-    logkwargs = {}
-    if options.debuglog:
-        logkwargs['filename'] = options.debuglog
-        longflags.append('--debug-log=%s' % options.debuglog)
-
-    if options.jobcount:
-        log.info("pymake doesn't implement -j yet. ignoring")
-        shortflags.append('j%i' % options.jobcount)
-
-    if options.directory is None:
-        workdir = cwd
-    else:
-        workdir = os.path.join(cwd, options.directory)
-
-    makeflags = ''.join(shortflags) + ' ' + ' '.join(longflags)
-
-    logging.basicConfig(level=loglevel, **logkwargs)
-
-    if options.printdir:
-        print "make.py[%i]: Entering directory '%s'" % (makelevel, workdir)
-        sys.stdout.flush()
-
-    if len(options.makefiles) == 0:
-        if os.path.exists(os.path.join(workdir, 'Makefile')):
-            options.makefiles.append('Makefile')
-        else:
-            print "No makefile found"
-            return 2
-
+def main(args, env, cwd, context, cb):
     try:
-        def parse():
-            i = 0
+        makelevel = int(env.get('MAKELEVEL', '0'))
 
-            while True:
-                m = pymake.data.Makefile(restarts=i, make='%s %s' % (sys.executable, makepypath),
-                                         makeflags=makeflags, makelevel=makelevel, workdir=workdir,
-                                         env=env)
+        op = OptionParser()
+        op.add_option('-f', '--file', '--makefile',
+                      action='append',
+                      dest='makefiles',
+                      default=[])
+        op.add_option('-d',
+                      action="store_true",
+                      dest="verbose", default=False)
+        op.add_option('--debug-log',
+                      dest="debuglog", default=None)
+        op.add_option('-C', '--directory',
+                      dest="directory", default=None)
+        op.add_option('-v', '--version', action="store_true",
+                      dest="printversion", default=False)
+        op.add_option('-j', '--jobs', type="int",
+                      dest="jobcount", default=1)
+        op.add_option('--no-print-directory', action="store_false",
+                      dest="printdir", default=True)
 
-                starttime = time.time()
-                targets = pymake.parser.parsecommandlineargs(m, arguments)
+        options, arguments1 = op.parse_args(parsemakeflags(env))
+        options, arguments2 = op.parse_args(args, values=options)
+
+        arguments = arguments1 + arguments2
+
+        if options.printversion:
+            version()
+            cb(0)
+            return
+
+        shortflags = []
+        longflags = []
+
+        loglevel = logging.WARNING
+        if options.verbose:
+            loglevel = logging.DEBUG
+            shortflags.append('d')
+
+        logkwargs = {}
+        if options.debuglog:
+            logkwargs['filename'] = options.debuglog
+            longflags.append('--debug-log=%s' % options.debuglog)
+
+        if options.directory is None:
+            workdir = cwd
+        else:
+            workdir = os.path.join(cwd, options.directory)
+
+        shortflags.append('j%i' % (options.jobcount,))
+
+        makeflags = ''.join(shortflags) + ' ' + ' '.join(longflags)
+
+        logging.basicConfig(level=loglevel, **logkwargs)
+
+        if context is not None and context.jcount > 1 and options.jobcount == 1:
+            log.debug("-j1 specified, creating new serial execution context")
+            context = process.getcontext(options.jobcount)
+            subcontext = True
+        elif context is None:
+            log.debug("Creating new execution context, jobcount %s" % options.jobcount)
+            context = process.getcontext(options.jobcount)
+            subcontext = True
+        else:
+            log.debug("Using parent execution context")
+            subcontext = False
+
+        if options.printdir:
+            print "make.py[%i]: Entering directory '%s'" % (makelevel, workdir)
+            sys.stdout.flush()
+
+        if len(options.makefiles) == 0:
+            if os.path.exists(os.path.join(workdir, 'Makefile')):
+                options.makefiles.append('Makefile')
+            else:
+                print "No makefile found"
+                cb(2)
+                return
+
+        # subvert python readonly closures
+        o = util.makeobject(('restarts', 'm', 'targets', 'remade', 'error'),
+                            restarts=-1)
+
+        def remakecb(remade):
+            if remade:
+                o.restarts += 1
+                if o.restarts > 0:
+                    log.info("make.py[%i]: Restarting makefile parsing" % (makelevel,))
+                o.m = data.Makefile(restarts=o.restarts, make='%s %s' % (sys.executable, makepypath),
+                                    makeflags=makeflags, makelevel=makelevel, workdir=workdir,
+                                    context=context, env=env)
+
+                o.targets = parser.parsecommandlineargs(o.m, arguments)
                 for f in options.makefiles:
-                    m.include(f)
+                    o.m.include(f)
 
-                log.info("Parsing[%i] took %f seconds" % (i, time.time() - starttime,))
+                o.m.finishparsing()
+                o.m.remakemakefiles(remakecb)
+                return
 
-                m.finishparsing()
-                if m.remakemakefiles():
-                    log.info("restarting makefile parsing")
-                    i += 1
-                    continue
+            if len(o.targets) == 0:
+                if o.m.defaulttarget is None:
+                    print "No target specified and no default target found."
+                    cb(2)
+                    return
+                o.targets = [o.m.defaulttarget]
+                tstack = ['<default-target>']
+            else:
+                tstack = ['<command-line>']
 
-                return m, targets
+            def makecb(error, didanything):
+                o.remade += 1
 
-        if options.parseprofile is None:
-            m, targets = parse()
-        else:
-            import cProfile
-            cProfile.run("m, targets = parse()", options.parseprofile)
+                log.debug("makecb[%i]: remade %i targets" % (makelevel, o.remade))
 
-        if len(targets) == 0:
-            if m.defaulttarget is None:
-                print "No target specified and no default target found."
-                return 2
-            targets = [m.defaulttarget]
-            tstack = ['<default-target>']
-        else:
-            tstack = ['<command-line>']
+                if error is not None:
+                    print error
+                    o.error = True
 
-        starttime = time.time()
-        for t in targets:
-            m.gettarget(t).make(m, ['<command-line>'], [])
-        log.info("Execution took %f seconds" % (time.time() - starttime,))
+                if o.remade == len(o.targets):
+                    if subcontext:
+                        context.finish()
 
-    except (pymake.data.DataError, pymake.parser.SyntaxError), e:
+                    if options.printdir:
+                        print "make.py[%i]: Leaving directory '%s'" % (makelevel, workdir)
+                    sys.stdout.flush()
+
+                    cb(o.error and 2 or 0)
+
+            o.remade = 0
+            o.error = False
+
+            for t in o.targets:
+                o.m.gettarget(t).make(o.m, ['<command-line>'], [], cb=makecb)
+
+        remakecb(True)
+
+    except (util.MakeError), e:
         print e
         if options.printdir:
             print "make.py[%i]: Leaving directory '%s'" % (makelevel, workdir)
         sys.stdout.flush()
-        return 2
-
-    if options.printdir:
-        print "make.py[%i]: Leaving directory '%s'" % (makelevel, workdir)
-
-    sys.stdout.flush()
-    return 0
+        cb(2)
+        return

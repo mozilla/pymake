@@ -6,6 +6,9 @@ make.py
 A drop-in or mostly drop-in replacement for GNU make.
 """
 
-import pymake.command, sys, os
+import sys, os
+import pymake.command, pymake.process
 
-sys.exit(pymake.command.main(sys.argv[1:], os.environ, os.getcwd()))
+pymake.command.main(sys.argv[1:], os.environ, os.getcwd(), context=None, cb=sys.exit)
+pymake.process.ParallelContext.spin()
+assert False, "Not reached"
