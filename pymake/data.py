@@ -83,7 +83,6 @@ def checkmsyscompat():
 
     prependshell = False
     if 'MSYSTEM' in os.environ and os.environ['MSYSTEM'] == 'MINGW32':
-        #XXX: transliterate slashes?
         prependshell = True
         if not shell.lower().endswith(".exe"):
             shell += ".exe"
@@ -649,8 +648,7 @@ class Target(object):
 
         search = [self.target]
         if not os.path.isabs(self.target):
-            #XXX: not using os.path.join for MSYS support :-/
-            search += [dir + "/" + self.target
+            search += [os.path.join(dir, self.target).replace('\\','/')
                        for dir in makefile.vpath]
 
         for t in search:
@@ -949,6 +947,7 @@ class PatternRule(object):
 
         env = makefile.getsubenvironment(v)
 
+        shell, prependshell = checkmsyscompat()
         for c in self.commands:
             cstring = c.resolve(v)
             for cline in splitcommand(cstring):
@@ -957,7 +956,9 @@ class PatternRule(object):
                     continue
                 if not isHidden:
                     print "%s $ %s" % (c.loc, cline)
-                r = subprocess.call(cline, shell=True, env=env)
+                if prependshell:
+                    cline = [shell, "-c", cline]
+                r = subprocess.call(cline, shell=not prependshell, env=env)
                 if r != 0 and not ignoreErrors:
                     raise DataError("command '%s' failed, return code was %s" % (cline, r), c.loc)
 
@@ -980,7 +981,7 @@ class Makefile(object):
         workdir = os.path.realpath(workdir)
         self.workdir = workdir
         self.variables.set('CURDIR', Variables.FLAVOR_SIMPLE,
-                           Variables.SOURCE_AUTOMATIC, workdir)
+                           Variables.SOURCE_AUTOMATIC, workdir.replace('\\','/'))
 
         # the list of included makefiles, whether or not they existed
         self.included = []

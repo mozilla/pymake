@@ -361,7 +361,7 @@ class WildcardFunction(Function):
     def resolve(self, variables, setting):
         # TODO: will need work when we support -C without actually changing the OS cwd
         pattern = self._arguments[0].resolve(variables, setting)
-        return ' '.join(glob.glob(pattern))
+        return ' '.join([x.replace('\\','/') for x in glob.glob(pattern)])
 
 class RealpathFunction(Function):
     name = 'realpath'
@@ -370,7 +370,7 @@ class RealpathFunction(Function):
 
     def resolve(self, variables, setting):
         # TODO: will need work when we support -C without actually changing the OS cwd
-        return ' '.join((os.path.realpath(f)
+        return ' '.join((os.path.realpath(f).replace('\\','/')
                          for f in data.splitwords(self._arguments[0].resolve(variables, setting))))
 
 class AbspathFunction(Function):
@@ -380,7 +380,7 @@ class AbspathFunction(Function):
 
     def resolve(self, variables, setting):
         # TODO: will need work when we support -C without actually changing the OS cwd
-        return ' '.join((os.path.abspath(f)
+        return ' '.join((os.path.abspath(f).replace('\\','/')
                          for f in data.splitwords(self._arguments[0].resolve(variables, setting))))
 
 class IfFunction(Function):

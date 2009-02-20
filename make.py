@@ -129,7 +129,8 @@ try:
         i = 0
 
         while True:
-            m = Makefile(restarts=i, make='%s %s' % (sys.executable, sys.argv[0]),
+            m = Makefile(restarts=i, make='%s %s' % (sys.executable.replace('\\','/'),
+                                                     sys.argv[0].replace('\\', '/')),
                          makeflags=makeflags, makelevel=makelevel)
 
             starttime = time.time()

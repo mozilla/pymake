@@ -657,7 +657,8 @@ def parsestream(fd, filename, makefile):
                 incfile, t, offset = parsemakesyntax(d, offset, (), itermakefilechars)
                 files = data.splitwords(incfile.resolve(makefile.variables))
                 for f in files:
-                    makefile.include(f, kword == 'include', loc=d.getloc(offset))
+                    makefile.include(f.replace('\\','/'),
+                                     kword == 'include', loc=d.getloc(offset))
                 continue
 
             if kword == 'override':

@@ -10,6 +10,7 @@ The test file may contain lines at the beginning to alter the default behavior. 
 
 #T commandline: ['extra', 'params', 'here']
 #T returncode: 2
+#T returncode-on: {'win32': 2}
 """
 
 from subprocess import Popen, PIPE, STDOUT
@@ -41,7 +42,7 @@ for a in args:
         print >>sys.stderr, "Error: Unknown file on command line"
         sys.exit(1)
 
-tre = re.compile('^#T ([a-z]+): (.*)$')
+tre = re.compile('^#T ([a-z-]+): (.*)$')
 
 for makefile in makefiles:
     print "Testing: %s" % makefile,
@@ -49,7 +50,17 @@ for makefile in makefiles:
     if os.path.exists(opts.tempdir): shutil.rmtree(opts.tempdir)
     os.mkdir(opts.tempdir, 0755)
 
-    cline = [opts.make, '-C', opts.tempdir, '-f', os.path.abspath(makefile), 'TESTPATH=%s' % thisdir]
+    # For some reason, MAKEFILE_LIST uses native paths in GNU make on Windows
+    # (even in MSYS!) so we pass both TESTPATH and NATIVE_TESTPATH
+    cline = [opts.make, '-C', opts.tempdir, '-f', os.path.abspath(makefile), 'TESTPATH=%s' % thisdir.replace('\\','/'), 'NATIVE_TESTPATH=%s' % thisdir]
+    if sys.platform == 'win32':
+        #XXX: hack to run pymake on windows
+        if opts.make.endswith('.py'):
+            cline = [sys.executable] + cline
+        #XXX: hack so we can specialize the separator character on windows.
+        # we really shouldn't need this, but y'know
+        cline += ['__WIN32__=1']
+        
     returncode = 0
 
     mdata = open(makefile)
@@ -63,6 +74,9 @@ for makefile in makefiles:
             cline.extend(data)
         elif key == 'returncode':
             returncode = data
+        elif key == 'returncode-on':
+            if sys.platform in data:
+                returncode = data[sys.platform]
         else:
             print >>sys.stderr, "Unexpected #T key: %s" % key
             sys.exit(1)

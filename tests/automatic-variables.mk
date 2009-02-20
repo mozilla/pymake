@@ -1,5 +1,6 @@
 $(shell \
-mkdir -p src/subd subd; \
+mkdir -p src/subd; \
+mkdir subd; \
 touch dummy; \
 sleep 1; \
 touch subd/test.out src/subd/test.in2; \
