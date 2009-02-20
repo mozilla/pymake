@@ -7,8 +7,8 @@ A drop-in or mostly drop-in replacement for GNU make.
 """
 
 import sys, os
-import pymake.command
+import pymake.command, pymake.process
 
 pymake.command.main(sys.argv[1:], os.environ, os.getcwd(), context=None, cb=sys.exit)
-
-raise Exception("Not reached")
+pymake.process.ParallelContext.spin()
+assert False, "Not reached"

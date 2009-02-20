@@ -59,12 +59,37 @@ def statustoresult(status):
 
     return status >>8
 
-_allcontexts = set()
+def getcontext(jcount):
+    assert jcount > 0
+    if jcount == 1:
+        return _serialsingleton
+
+    return ParallelContext(jcount)
+
+class SerialContext(object):
+    """
+    Manages the serial execution of processes.
+    """
+
+    jcount = 1
+
+    def call(self, argv, shell, env, cwd, cb, echo):
+        if echo is not None:
+            print echo
+        p = subprocess.Popen(argv, shell=shell, env=env, cwd=cwd)
+        cb(p.wait())
+
+    def finish(self):
+        pass
+
+_serialsingleton = SerialContext()
 
 class ParallelContext(object):
     """
     Manages the parallel execution of processes.
     """
+
+    _allcontexts = set()
 
     def __init__(self, jcount):
         self.jcount = jcount
@@ -73,11 +98,11 @@ class ParallelContext(object):
         self.pending = [] # list of (argv, shell, env, cwd, cb, echo)
         self.running = [] # list of (subprocess, cb)
 
-        _allcontexts.add(self)
+        self._allcontexts.add(self)
 
     def finish(self):
         assert len(self.pending) == 0 and len(self.running) == 0, "pending: %i running: %i" % (len(self.pending), len(self.running))
-        _allcontexts.remove(self)
+        self._allcontexts.remove(self)
 
     def run(self):
         while (len(self.running) < self.jcount) and len(self.pending):
@@ -99,27 +124,28 @@ class ParallelContext(object):
         self.pending.append((argv, shell, env, cwd, cb, echo))
         self.run()
 
-def spin():
-    """
-    Spin the 'event loop', and return only when it is empty.
-    """
+    @staticmethod
+    def spin():
+        """
+        Spin the 'event loop', and return only when it is empty.
+        """
 
-    while True:
-        for c in _allcontexts:
-            c.run()
+        while True:
+            for c in ParallelContext._allcontexts:
+                c.run()
 
-        pid, status = os.waitpid(-1, 0)
-        result = statustoresult(status)
+            pid, status = os.waitpid(-1, 0)
+            result = statustoresult(status)
 
-        found = False
+            found = False
 
-        for c in _allcontexts:
-            for i in xrange(0, len(c.running)):
-                p, cb = c.running[i]
-                if p.pid == pid:
-                    del c.running[i]
-                    cb(result)
-                    found = True
-                    break
+            for c in ParallelContext._allcontexts:
+                for i in xrange(0, len(c.running)):
+                    p, cb = c.running[i]
+                    if p.pid == pid:
+                        del c.running[i]
+                        cb(result)
+                        found = True
+                        break
 
-            if found: break
+                if found: break

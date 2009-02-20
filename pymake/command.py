@@ -122,18 +122,15 @@ def main(args, env, cwd, context, cb):
 
         if context is not None and context.jcount > 1 and options.jobcount == 1:
             log.debug("-j1 specified, creating new serial execution context")
-            context = process.ParallelContext(options.jobcount)
+            context = process.getcontext(options.jobcount)
             subcontext = True
-            wait = False
         elif context is None:
             log.debug("Creating new execution context, jobcount %s" % options.jobcount)
-            context = process.ParallelContext(options.jobcount)
+            context = process.getcontext(options.jobcount)
             subcontext = True
-            wait = True
         else:
             log.debug("Using parent execution context")
             subcontext = False
-            wait = False
 
         if options.printdir:
             print "make.py[%i]: Entering directory '%s'" % (makelevel, workdir)
@@ -204,8 +201,6 @@ def main(args, env, cwd, context, cb):
                 o.m.gettarget(t).make(o.m, ['<command-line>'], [], cb=makecb)
 
         remakecb(True)
-        if wait:
-            process.spin()
 
     except (util.MakeError), e:
         print e
