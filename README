@@ -21,18 +21,19 @@ The Mozilla project inspired this tool with several goals:
 
 KNOWN INCOMPATIBILITIES
 
-* $(eval) is not yet supported
-
 * Parallel builds (-j > 1) are not yet supported
 
-* The vpath directive is not yet supported
-
 * Order-only prerequisites are not yet supported
+
+* Secondary expansion is not yet supported.
 
 * Target-specific variables behave differently than in GNU make: in pymake, the target-specific
   variable only applies to the specific target that is mentioned, and does not apply recursively
   to all dependencies which are remade. This is an intentional change: the behavior of GNU make
   is neither deterministic nor intuitive.
+
+* $(eval) is only supported during the parse phase. Any attempt to recursively expand
+  an $(eval) function during command execution will fail. This is an intentional incompatibility.
 
 * Windows is unlikely to work properly. There are subtle issues to figure out with Windows
   file paths and shell execution, because Python is not an MSYS project but we'd like it to use
