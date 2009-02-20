@@ -120,14 +120,17 @@ def main(args, env, cwd, context, cb):
 
         if context is not None and context.jcount > 1 and options.jobcount == 1:
             log.debug("-j1 specified, creating new serial execution context")
-            wait = True
             context = process.ParallelContext(options.jobcount)
+            subcontext = True
+            wait = False
         elif context is None:
             log.debug("Creating new execution context, jobcount %s" % options.jobcount)
-            wait = True
             context = process.ParallelContext(options.jobcount)
+            subcontext = True
+            wait = True
         else:
             log.debug("Using parent execution context")
+            subcontext = False
             wait = False
 
         if options.printdir:
@@ -183,6 +186,9 @@ def main(args, env, cwd, context, cb):
                     o.error = True
 
                 if o.remade == len(o.targets):
+                    if subcontext:
+                        context.finish()
+
                     if options.printdir:
                         print "make.py[%i]: Leaving directory '%s'" % (makelevel, workdir)
                     sys.stdout.flush()
@@ -197,7 +203,7 @@ def main(args, env, cwd, context, cb):
 
         remakecb(True)
         if wait:
-            context.spin()
+            process.spin()
 
     except (util.MakeError), e:
         print e

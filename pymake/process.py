@@ -59,6 +59,8 @@ def statustoresult(status):
 
     return status >>8
 
+_allcontexts = set()
+
 class ParallelContext(object):
     """
     Manages the parallel execution of processes.
@@ -71,6 +73,12 @@ class ParallelContext(object):
         self.pending = [] # list of (argv, shell, env, cwd, cb, echo)
         self.running = [] # list of (subprocess, cb)
 
+        _allcontexts.add(self)
+
+    def finish(self):
+        assert len(self.pending) == 0 and len(self.running) == 0, "pending: %i running: %i" % (len(self.pending), len(self.running))
+        _allcontexts.remove(self)
+
     def run(self):
         while len(self.running) < self.jcount and len(self.pending):
             argv, shell, env, cwd, cb, echo = self.pending.pop(0)
@@ -80,8 +88,6 @@ class ParallelContext(object):
             p = subprocess.Popen(argv, shell=shell, env=env, cwd=cwd)
             self.running.append((p, cb))
 
-    counter = 0
-
     def call(self, argv, shell, env, cwd, cb, echo):
         """
         Asynchronously call the process
@@ -90,26 +96,27 @@ class ParallelContext(object):
         self.pending.append((argv, shell, env, cwd, cb, echo))
         self.run()
 
-    def spin(self):
-        """
-        Spin the 'event loop', and return only when it is empty.
-        """
+def spin():
+    """
+    Spin the 'event loop', and return only when it is empty.
+    """
 
-        while len(self.pending) or len(self.running):
-            self.run()
-            assert len(self.running)
+    while True:
+        for c in _allcontexts:
+            c.run()
 
-            _log.debug("spin: pending: %i running %i" % (len(self.pending),
-                                                         len(self.running)))
-            
-            pid, status = os.waitpid(-1, 0)
-            result = statustoresult(status)
+        pid, status = os.waitpid(-1, 0)
+        result = statustoresult(status)
 
-            for i in xrange(0, len(self.running)):
-                p, cb = self.running[i]
+        found = False
+
+        for c in _allcontexts:
+            for i in xrange(0, len(c.running)):
+                p, cb = c.running[i]
                 if p.pid == pid:
+                    del c.running[i]
                     cb(result)
-                    del self.running[i]
+                    found = True
                     break
 
-        _log.debug("exiting spin")
+            if found: break

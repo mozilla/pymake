@@ -715,21 +715,27 @@ class Target(object):
 
         indent = getindent(targetstack)
 
-        o = pymake.util.makeobject(('unmadedeps', 'didanything')) # this object exists solely as a container to subvert python's read-only closures
+        # this object exists solely as a container to subvert python's read-only closures
+        o = pymake.util.makeobject(('unmadedeps', 'didanything', 'error'))
         
         def depcallback(error, didanything):
-            assert self._state in (MAKESTATE_WORKING, MAKESTATE_FINISHED)
-
-            o.unmadedeps -= 1
+            assert self._state == MAKESTATE_WORKING
 
             if error is not None:
-                self._notifyerror(error)
+                o.error = error
             else:
                 assert didanything is not None
                 if didanything:
                     o.didanything = True
 
-            if o.unmadedeps == 0 and self._state == MAKESTATE_WORKING:
+            o.unmadedeps -= 1
+
+            if o.unmadedeps != 0:
+                return
+
+            if o.error:
+                self._notifyerror(o.error)
+            else:
                 makeself()
 
         def makeself():
@@ -807,15 +813,14 @@ class Target(object):
 
             o.didanything = False
             o.unmadedeps = 1
+            o.error = None
 
             for r, deps in _resolvedrules:
                 for d in deps:
                     o.unmadedeps += 1
                     d.make(makefile, targetstack, [], cb=depcallback)
 
-            o.unmadedeps -= 1
-            if o.unmadedeps == 0 and self._state == MAKESTATE_WORKING:
-                makeself()
+            depcallback(error=None, didanything=False)
         
         except pymake.util.MakeError, e:
             self._notifyerror(e)
