@@ -141,6 +141,7 @@ class TokenList(object):
     optimizations (such as escaping and compiling regexes) on construction.
     """
     def __init__(self, tlist):
+        self.tlist = tlist
         self.emptylist = len(tlist) == 0
         escapedlist = [re.escape(t) for t in tlist]
         self.simplere = re.compile('|'.join(escapedlist))
@@ -233,7 +234,10 @@ def itermakefilechars(d, offset, tokenlist):
         if token == '\\#':
             yield d.data[offset:start] + '#', None, None, None
         elif token.startswith('\\'):
-            yield d.data[offset:end], None, None, None
+            if token[1:] in tokenlist.tlist:
+                yield d.data[offset:start + 1], token[1:], start + 1, end
+            else:
+                yield d.data[offset:end], None, None, None
         else:
             yield d.data[offset:start], token, start, end
 
@@ -266,7 +270,10 @@ def itercommandchars(d, offset, tokenlist):
             continue
         
         if token.startswith('\\'):
-            yield d.data[offset:end], None, None, None
+            if token[1:] in tokenlist.tlist:
+                yield d.data[offset:start + 1], token[1:], start + 1, end
+            else:
+                yield d.data[offset:end], None, None, None
         else:
             yield d.data[offset:start], token, start, end
 
@@ -334,7 +341,10 @@ def iterdefinechars(d, offset, tokenlist):
 
             yield d.data[offset:end], None, None, None
         elif token.startswith('\\'):
-            yield d.data[offset:end], None, None, None
+            if token[1:] in tokenlist.tlist:
+                yield d.data[offset:start + 1], token[1:], start + 1, end
+            else:
+                yield d.data[offset:end], None, None, None
         else:
             yield d.data[offset:start], token, start, end
 
