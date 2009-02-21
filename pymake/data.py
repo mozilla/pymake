@@ -3,6 +3,7 @@ A representation of makefile data structures.
 """
 
 import logging, re, os
+import parserdata
 import pymake.parser
 import pymake.functions
 import pymake.process
@@ -205,8 +206,7 @@ class Variables(object):
                     if not expand:
                         return pflavor, psource, pvalue + ' ' + valuestr
 
-                    d = pymake.parser.Data(None, None)
-                    d.append(valuestr, pymake.parser.Location("Expansion of variable '%s'" % (name,), 1, 0))
+                    d = pymake.parser.Data.fromstring(valuestr, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
                     appende, t, o = pymake.parser.parsemakesyntax(d, 0, (), pymake.parser.iterdata)
 
                     pvalue.append(' ')
@@ -218,8 +218,7 @@ class Variables(object):
                 return flavor, source, valuestr
 
             if flavor == self.FLAVOR_RECURSIVE:
-                d = pymake.parser.Data(None, None)
-                d.append(valuestr, pymake.parser.Location("Expansion of variable '%s'" % (name,), 1, 0))
+                d = pymake.parser.Data.fromstring(valuestr, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
                 val, t, o = pymake.parser.parsemakesyntax(d, 0, (), pymake.parser.iterdata)
             else:
                 val = Expansion.fromstring(valuestr)
@@ -255,8 +254,7 @@ class Variables(object):
                 return
 
             if prevflavor == self.FLAVOR_SIMPLE:
-                d = pymake.parser.Data(None, None)
-                d.append(value, pymake.parser.Location("Expansion of variable '%s'" % (name,), 1, 0))
+                d = pymake.parser.Data.fromstring(value, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
                 e, t, o = pymake.parser.parsemakesyntax(d, 0, (), pymake.parser.iterdata)
                 val = e.resolve(makefile, variables, [name])
             else:
@@ -954,8 +952,7 @@ class Rule(object):
         self.loc = loc
 
     def addcommand(self, c):
-        """Append a command expansion."""
-        assert(isinstance(c, Expansion))
+        assert isinstance(c, Expansion)
         self.commands.append(c)
 
     def getcommands(self, target, makefile):
@@ -1175,7 +1172,8 @@ class Makefile(object):
         if os.path.exists(fspath):
             fd = open(fspath)
             self.variables.append('MAKEFILE_LIST', Variables.SOURCE_AUTOMATIC, path, None, self)
-            pymake.parser.parsestream(fd, path, self)
+            stmts = pymake.parser.parsestream(fd, path)
+            stmts.execute(self)
             self.gettarget(path).explicit = True
         elif required:
             raise DataError("Attempting to include file '%s' which doesn't exist." % (path,), loc)
@@ -1184,17 +1182,21 @@ class Makefile(object):
         """
         Add a directory to the vpath search for the given pattern.
         """
+        log.info("Adding vpath directive: pattern '%s' directories %r" % (pattern, dirs))
         self._patternvpaths.append((pattern, dirs))
 
     def clearvpath(self, pattern):
         """
         Clear vpaths for the given pattern.
         """
+        log.info("Clearing vpath directives for pattern '%s'" % (pattern,))
+
         self._patternvpaths = [(p, dirs)
                                for p, dirs in self._patternvpaths
                                if not p.match(pattern)]
 
     def clearallvpaths(self):
+        log.info("Clearing all vpath directives")
         self._patternvpaths = []
 
     def getvpath(self, target):

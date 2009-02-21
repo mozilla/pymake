@@ -1,4 +1,4 @@
-import pymake.data, pymake.parser, pymake.functions
+import pymake.data, pymake.parser, pymake.parserdata, pymake.functions
 import unittest
 import logging
 
@@ -27,9 +27,9 @@ class DataTest(TestBase):
 
     def runTest(self):
         for datas, results in self.testdata:
-            d = pymake.parser.Data(None, None)
+            d = pymake.parser.Data()
             for line, file, lineno, col in datas:
-                d.append(line, pymake.parser.Location(file, lineno, col))
+                d.append(line, pymake.parserdata.Location(file, lineno, col))
             for pos, file, lineno, col in results:
                 loc = d.getloc(pos)
                 self.assertEqual(loc.path, file, "data file")
@@ -49,8 +49,7 @@ class TokenTest(TestBase):
         }
 
     def runSingle(self, s, start, tlist, needws, etoken, eoffset):
-        d = Data(None, None)
-        d.append(s, None)
+        d = Data.fromstring(s, None)
         atoken, aoffset = d.findtoken(start, tlist)
         self.assertEqual(atoken, etoken)
         self.assertEqual(aoffset, eoffset)
@@ -135,7 +134,7 @@ endef\n""",
         fd = StringIO(idata)
         lineiter = pymake.parser.iterlines(fd)
 
-        d = pymake.parser.Data(lineiter, 'PlainIterTest-data')
+        d = pymake.parser.DynamicData(lineiter, 'PlainIterTest-data')
         d.readline()
 
         actual = ''.join( (c for c, t, o, oo in ifunc(d, 0, pymake.parser.emptytokenlist)) )
@@ -213,8 +212,7 @@ class MakeSyntaxTest(TestBase):
                         raise Exception("Unexpected property at %s: %s" % (ipath, k))
 
     def runSingle(self, s, startat, stopat, stopoffset, expansion):
-        d = pymake.parser.Data(None, None)
-        d.append(s, pymake.parser.Location('testdata', 1, 0))
+        d = pymake.parser.Data.fromstring(s, pymake.parserdata.Location('testdata', 1, 0))
 
         a, t, offset = pymake.parser.parsemakesyntax(d, startat, stopat, pymake.parser.itermakefilechars)
         self.compareRecursive(a, expansion, [])
@@ -242,15 +240,17 @@ class VariableTest(TestBase):
                 'UNDEF': None}
 
     def runTest(self):
-        m = pymake.data.Makefile()
         stream = StringIO(self.testdata)
-        pymake.parser.parsestream(stream, 'testdata', m)
+        stmts = pymake.parser.parsestream(stream, 'testdata')
+
+        m = pymake.data.Makefile()
+        stmts.execute(m)
         for k, v in self.expected.iteritems():
             flavor, source, val = m.variables.get(k)
             if val is None:
                 self.assertEqual(val, v, 'variable named %s' % k)
             else:
-                self.assertEqual(val.resolve(m.variables), v, 'variable named %s' % k)
+                self.assertEqual(val.resolve(m, m.variables), v, 'variable named %s' % k)
 
 class SimpleRuleTest(TestBase):
     testdata = """
@@ -265,9 +265,11 @@ all:: test test2 $(VAR)
 """
 
     def runTest(self):
-        m = pymake.data.Makefile()
         stream = StringIO(self.testdata)
-        pymake.parser.parsestream(stream, 'testdata', m)
+        stmts = pymake.parser.parsestream(stream, 'testdata')
+
+        m = pymake.data.Makefile()
+        stmts.execute(m)
         self.assertEqual(m.defaulttarget, 'all', "Default target")
 
         self.assertTrue(m.hastarget('all'), "Has 'all' target")
@@ -278,7 +280,7 @@ all:: test test2 $(VAR)
         self.assertEqual(prereqs, ['test', 'test2', 'value'], "Prerequisites")
         commands = rules[0].commands
         self.assertEqual(len(commands), 1, "Number of commands")
-        expanded = commands[0].resolve(target.variables)
+        expanded = commands[0].resolve(m, target.variables)
         self.assertEqual(expanded, 'echo "Hello, myrule"')
 
         irules = m.implicitrules

@@ -46,6 +46,11 @@ else           \
 endif
 endif
 
+ifndef ASDFJK
+else
+$(error ASFDJK was not set)
+endif
+
 TESTSET =
 
 ifdef TESTSET
@@ -94,7 +99,7 @@ all:
 	test $(BAR3FOUND) = false # BAR3FOUND
 	test $(BAZ3FOUND) = true  # BAZ3FOUND
 ifneq ($(FOO),foo)
-	echo TEST-FAIL 'FOO neq foo'
+	echo TEST-FAIL 'FOO neq foo: "$(FOO)"'
 endif
 ifneq ($(FOO), foo) # Whitespace after the comma is stripped
 	echo TEST-FAIL 'FOO plus whitespace'

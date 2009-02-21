@@ -16,50 +16,20 @@ Otherwise, they are parsed as makefile syntax.
 
 After splitting data into parseable chunks, we use a recursive-descent parser to
 nest parenthesized syntax.
+
+This file parses into the data structures defined in the parserdata module. Those classes are what actually
+do the dirty work of "executing" the parsed data into a Makefile data structure.
 """
 
 import logging, re
-import data, functions, util
-from pymake.globrelative import hasglob, glob
-from cStringIO import StringIO
-
-tabwidth = 4
+import data, functions, util, parserdata
 
 log = logging.getLogger('pymake.parser')
 
 class SyntaxError(util.MakeError):
     pass
 
-class Location(object):
-    """
-    A location within a makefile.
-
-    For the moment, locations are just path/line/column, but in the future
-    they may reference parent locations for more accurate "included from"
-    or "evaled at" error reporting.
-    """
-    __slots__ = ('path', 'line', 'column')
-
-    def __init__(self, path, line, column):
-        self.path = path
-        self.line = line
-        self.column = column
-
-    def __add__(self, data):
-        """
-        Returns a new location on the same line offset by
-        the specified string.
-        """
-        newcol = reduce(charlocation, data, self.column)
-        if newcol == self.column:
-            return self
-        return Location(self.path, self.line, newcol)
-
-    def __str__(self):
-        return "%s:%s:%s" % (self.path, self.line, self.column)
-
 def findlast(func, iterable):
-    f = None
     for i in iterable:
         if func(i):
             f = i
@@ -68,47 +38,33 @@ def findlast(func, iterable):
 
     return f
 
-def charlocation(start, char):
-    """
-    Return the column position after processing a perhaps-tab character.
-    This function is meant to be used with reduce().
-    """
-    if char != '\t':
-        return start + 1
-
-    return start + tabwidth - start % tabwidth
-
 class Data(object):
     """
     A single virtual "line", which can be multiple source lines joined with
-    continuations. This object is short-lived and should not escape the parser.
+    continuations.
     """
 
-    def __init__(self, lineiter, path):
+    def __init__(self):
         self.data = ""
-        self.lineiter = lineiter
-        self.path = path
 
         # _locs is a list of tuples
         # (dataoffset, location)
         self._locs = []
 
-    def __len__(self):
-        return len(self.data)
+    @staticmethod
+    def fromstring(str, loc):
+        d = Data()
+        d.append(str, loc)
+        return d
 
-    def readline(self):
-        try:
-            lineno, line = self.lineiter.next()
-            self.append(line, Location(self.path, lineno, 0))
-            return True
-        except StopIteration:
-            return False
+    # def __len__(self):
+    #     return len(self.data)
 
-    def __getitem__(self, key):
-        try:
-            return self.data[key]
-        except IndexError:
-            return None
+    # def __getitem__(self, key):
+    #     try:
+    #         return self.data[key]
+    #     except IndexError:
+    #         return None
 
     def append(self, data, loc):
         self._locs.append( (len(self.data), loc) )
@@ -159,6 +115,23 @@ class Data(object):
 
         return None, o
 
+class DynamicData(Data):
+    """
+    If we're reading from a stream, allows reading additional data dynamically.
+    """
+    def __init__(self, lineiter, path):
+        Data.__init__(self)
+        self.lineiter = lineiter
+        self.path = path
+
+    def readline(self):
+        try:
+            lineno, line = self.lineiter.next()
+            self.append(line, parserdata.Location(self.path, lineno, 0))
+            return True
+        except StopIteration:
+            return False
+
 makefiletokensescaped = [r'\\\\#', r'\\#', '\\\\\n', '\\\\\\s+\\\\\n', r'\\.', '#', '\n']
 continuationtokensescaped = ['\\\\\n', r'\\.', '\n']
 
@@ -168,6 +141,7 @@ class TokenList(object):
     optimizations (such as escaping and compiling regexes) on construction.
     """
     def __init__(self, tlist):
+        self.tlist = tlist
         self.emptylist = len(tlist) == 0
         escapedlist = [re.escape(t) for t in tlist]
         self.simplere = re.compile('|'.join(escapedlist))
@@ -260,7 +234,10 @@ def itermakefilechars(d, offset, tokenlist):
         if token == '\\#':
             yield d.data[offset:start] + '#', None, None, None
         elif token.startswith('\\'):
-            yield d.data[offset:end], None, None, None
+            if token[1:] in tokenlist.tlist:
+                yield d.data[offset:start + 1], token[1:], start + 1, end
+            else:
+                yield d.data[offset:end], None, None, None
         else:
             yield d.data[offset:start], token, start, end
 
@@ -293,7 +270,10 @@ def itercommandchars(d, offset, tokenlist):
             continue
         
         if token.startswith('\\'):
-            yield d.data[offset:end], None, None, None
+            if token[1:] in tokenlist.tlist:
+                yield d.data[offset:start + 1], token[1:], start + 1, end
+            else:
+                yield d.data[offset:end], None, None, None
         else:
             yield d.data[offset:start], token, start, end
 
@@ -361,7 +341,10 @@ def iterdefinechars(d, offset, tokenlist):
 
             yield d.data[offset:end], None, None, None
         elif token.startswith('\\'):
-            yield d.data[offset:end], None, None, None
+            if token[1:] in tokenlist.tlist:
+                yield d.data[offset:start + 1], token[1:], start + 1, end
+            else:
+                yield d.data[offset:end], None, None, None
         else:
             yield d.data[offset:start], token, start, end
 
@@ -370,6 +353,9 @@ def iterdefinechars(d, offset, tokenlist):
     # Unlike the other iterators, if you fall off this one there is an unterminated
     # define.
     raise SyntaxError("Unterminated define", d.getloc(startoffset))
+
+def _iterflatten(iter, data, offset):
+    return ''.join((str for str, t, o, oo in iter(data, offset, emptytokenlist)))
 
 def ensureend(d, offset, msg, ifunc=itermakefilechars):
     """
@@ -392,85 +378,9 @@ def iterlines(fd):
 
         yield (lineno, line)
 
-def setvariable(resolvevariables, setvariables, makefile, vname, token, d, offset,
-                iterfunc=itermakefilechars, source=None,
-                skipwhitespace=True):
-    """
-    Parse what's left in a data iterator di into a variable.
-    """
-    assert isinstance(resolvevariables, data.Variables)
-    assert isinstance(setvariables, data.Variables)
-
-    if source is None:
-        source = data.Variables.SOURCE_MAKEFILE
-
-    # print "setvariable: %r resvariables: %r setvariables: %r" % (vname, resolvevariables, setvariables)
-
-    if len(vname) == 0:
-        raise SyntaxError("Empty variable name", loc=d.getloc(offset))
-
-    if token == '+=':
-        val = ''.join((c for c, t, o, oo in iterfunc(d, offset, emptytokenlist)))
-        if skipwhitespace:
-            val = val.lstrip()
-        setvariables.append(vname, source, val, resolvevariables, makefile)
-        return
-
-    if token == '?=':
-        flavor = data.Variables.FLAVOR_RECURSIVE
-        val = ''.join((c for c, t, o, oo in iterfunc(d, offset, emptytokenlist)))
-        if skipwhitespace:
-            val = val.lstrip()
-        oldflavor, oldsource, oldval = setvariables.get(vname, expand=False)
-        if oldval is not None:
-            return
-    elif token == '=':
-        flavor = data.Variables.FLAVOR_RECURSIVE
-        val = ''.join((c for c, t, o, oo in iterfunc(d, offset, emptytokenlist)))
-        if skipwhitespace:
-            val = val.lstrip()
-    else:
-        assert token == ':='
-
-        flavor = data.Variables.FLAVOR_SIMPLE
-        e, t, o = parsemakesyntax(d, offset, (), itermakefilechars)
-        if skipwhitespace:
-            e.lstrip()
-        val = e.resolve(makefile, resolvevariables)
-        
-    setvariables.set(vname, flavor, source, val)
-
-def parsecommandlineargs(makefile, args):
-    """
-    Given a set of arguments from a command-line invocation of make,
-    parse out the variable definitions and return the rest as targets.
-    """
-
-    r = []
-    for i in xrange(0, len(args)):
-        a = args[i]
-
-        vname, t, val = a.partition(':=')
-        if t == '':
-            vname, t, val = a.partition('=')
-        if t != '':
-            makefile.overrides.append(a)
-
-            vname = vname.strip()
-            d = Data(None, None)
-            d.append(val, Location('<command-line>', i, len(vname) + len(t)))
-
-            setvariable(makefile.variables, makefile.variables, makefile,
-                        vname, t, d, 0, source=data.Variables.SOURCE_COMMANDLINE,
-                        iterfunc=iterdata)
-        else:
-            r.append(a)
-
-    return r
-
 eqargstokenlist = TokenList.get(('(', "'", '"'))
 
-def ifeq(d, offset, makefile):
+def ifeq(d, offset):
     # the variety of formats for this directive is rather maddening
     token, offset = d.findtoken(offset, eqargstokenlist, False)
     if token is None:
@@ -495,10 +405,10 @@ def ifeq(d, offset, makefile):
             raise SyntaxError("Unexpected text in conditional", d.getloc(offset))
 
         offset = d.skipwhitespace(offset)
-        if offset == len(d):
+        if offset == len(d.data):
             raise SyntaxError("Expected two arguments in conditional", d.getloc(offset))
 
-        token = d[offset]
+        token = d.data[offset]
         if token not in '\'"':
             raise SyntaxError("Unexpected text in conditional", d.getloc(offset))
 
@@ -506,31 +416,23 @@ def ifeq(d, offset, makefile):
 
         ensureend(d, offset, "Unexpected text after conditional")
 
-    val1 = arg1.resolve(makefile, makefile.variables)
-    val2 = arg2.resolve(makefile, makefile.variables)
+    return parserdata.EqCondition(arg1, arg2)
 
-    return val1 == val2
+def ifneq(d, offset):
+    c = ifeq(d, offset)
+    c.expected = False
+    return c
 
-def ifneq(d, offset, makefile):
-    return not ifeq(d, offset, makefile)
-
-def ifdef(d, offset, makefile):
+def ifdef(d, offset):
     e, t, offset = parsemakesyntax(d, offset, (), itermakefilechars)
     e.rstrip()
 
-    vname = e.resolve(makefile, makefile.variables)
+    return parserdata.IfdefCondition(e)
 
-    flavor, source, value = makefile.variables.get(vname, expand=False)
-
-    if value is None:
-        return False
-
-    # We aren't expanding the variable... we're just seeing if it was set to a non-empty
-    # expansion.
-    return len(value) > 0
-
-def ifndef(d, offset, makefile):
-    return not ifdef(d, offset, makefile)
+def ifndef(d, offset):
+    c = ifdef(d, offset)
+    c.expected = False
+    return c
 
 conditionkeywords = {
     'ifeq': ifeq,
@@ -539,34 +441,6 @@ conditionkeywords = {
     'ifndef': ifndef
     }
 
-class Condition(object):
-    """
-    Represent aa makefile conditional.
-    1) is the condition active right now?
-    2) was the condition ever met?
-    """
-    def __init__(self, active, loc):
-        self.active = active
-        self.everactive = active
-
-    def makeactive(self, active):
-        if self.everactive:
-            self.active = False
-            return
-
-        self.active = active
-        if active:
-            self.everactive = True
-
-def expandwildcards(makefile, tlist):
-    for t in tlist:
-        if not hasglob(t):
-            yield t
-        else:
-            l = glob(makefile.workdir, t)
-            for r in l:
-                yield r
-
 conditiontokens = tuple(conditionkeywords.iterkeys())
 directivestokenlist = TokenList.get(conditiontokens + \
     ('else', 'endif', 'define', 'endef', 'override', 'include', '-include', 'vpath', 'export', 'unexport'))
@@ -574,31 +448,29 @@ conditionkeywordstokenlist = TokenList.get(conditiontokens)
 
 varsettokens = (':=', '+=', '?=', '=')
 
-def parsestream(fd, filename, makefile):
+def parsestream(fd, filename):
     """
-    Parse a stream of makefile into a makefile data structure.
+    Parse a stream of makefile into a parser data structure.
 
     @param fd A file-like object containing the makefile data.
     """
 
-    currule = None
-    condstack = []
+    currule = False
+    condstack = [parserdata.StatementList()]
 
     fdlines = iterlines(fd)
 
     while True:
-        d = Data(fdlines, filename)
+        assert len(condstack) > 0
+
+        d = DynamicData(fdlines, filename)
         if not d.readline():
             break
 
-        if len(d.data) > 0 and d.data[0] == '\t' and currule is not None:
-            if any((not c.active for c in condstack)):
-                log.debug('%s: skipping line because of active conditions' % (d.getloc(0),))
-                continue
-
+        if len(d.data) > 0 and d.data[0] == '\t' and currule:
             e, t, o = parsemakesyntax(d, 1, (), itercommandchars)
             assert t == None
-            currule.addcommand(e)
+            condstack[-1].append(parserdata.Command(e))
         else:
             # To parse Makefile syntax, we first strip leading whitespace and
             # look for initial keywords. If there are no keywords, it's either
@@ -609,7 +481,7 @@ def parsestream(fd, filename, makefile):
             kword, offset = d.findtoken(offset, directivestokenlist, True)
             if kword == 'endif':
                 ensureend(d, offset, "Unexpected data after 'endif' directive")
-                if not len(condstack):
+                if len(condstack) == 1:
                     raise SyntaxError("unmatched 'endif' directive",
                                       d.getloc(offset))
 
@@ -617,117 +489,84 @@ def parsestream(fd, filename, makefile):
                 continue
             
             if kword == 'else':
-                if not len(condstack):
+                if len(condstack) == 1:
                     raise SyntaxError("unmatched 'else' directive",
                                       d.getloc(offset))
 
                 kword, offset = d.findtoken(offset, conditionkeywordstokenlist, True)
                 if kword is None:
                     ensureend(d, offset, "Unexpected data after 'else' directive.")
-                    condstack[-1].makeactive(True)
+                    condstack[-1].addcondition(d.getloc(offset), parserdata.ElseCondition())
                 else:
                     if kword not in conditionkeywords:
                         raise SyntaxError("Unexpected condition after 'else' directive.",
                                           d.getloc(offset))
 
-                    if any ((not c.active for c in condstack[:-1])):
-                        pass
-                    else:
-                        m = conditionkeywords[kword](d, offset, makefile)
-                        condstack[-1].makeactive(m)
+                    c = conditionkeywords[kword](d, offset)
+                    condstack[-1].addcondition(d.getloc(offset), c)
                 continue
 
             if kword in conditionkeywords:
-                if any((not c.active for c in condstack)):
-                    # If any conditions are currently false, we don't evaluate anything: just stick a dummy
-                    # condition on the stack
-                    condstack.append(Condition(True, d.getloc(offset)))
-                else:
-                    m = conditionkeywords[kword](d, offset, makefile)
-                    condstack.append(Condition(m, d.getloc(offset)))
-                continue
-
-            if any((not c.active for c in condstack)):
-                log.debug('%s: skipping line because of active conditions' % (d.getloc(0),))
-                for c in itermakefilechars(d, offset, emptytokenlist):
-                    pass
+                c = conditionkeywords[kword](d, offset)
+                cb = parserdata.ConditionBlock(d.getloc(0), c)
+                condstack[-1].append(cb)
+                condstack.append(cb)
                 continue
 
             if kword == 'endef':
                 raise SyntaxError("Unmatched endef", d.getloc(offset))
 
             if kword == 'define':
-                e, t, i = parsemakesyntax(d, offset, (), itermakefilechars)
+                currule = False
+                vname, t, i = parsemakesyntax(d, offset, (), itermakefilechars)
 
-                d = Data(fdlines, filename)
+                d = DynamicData(fdlines, filename)
                 d.readline()
 
-                setvariable(makefile.variables, makefile.variables, makefile,
-                            e.resolve(makefile, makefile.variables),
-                            '=', d, 0, iterdefinechars,
-                            skipwhitespace=False)
-
+                value = _iterflatten(iterdefinechars, d, 0)
+                condstack[-1].append(parserdata.SetVariable(vname, value=value, valueloc=d.getloc(0), token='=', targetexp=None))
                 continue
 
             if kword in ('include', '-include'):
+                currule = False
                 incfile, t, offset = parsemakesyntax(d, offset, (), itermakefilechars)
-                files = data.splitwords(incfile.resolve(makefile, makefile.variables))
-                for f in files:
-                    makefile.include(f.replace('\\','/'),
-                                     kword == 'include', loc=d.getloc(offset))
+                condstack[-1].append(parserdata.Include(incfile, kword == 'include'))
+
                 continue
 
             if kword == 'vpath':
-                e, t, offset = parsemakesyntax(d, offset, (' ', '\t'), itermakefilechars)
-                patstr = e.resolve(makefile, makefile.variables)
-                pattern = data.Pattern(patstr)
-                if t is None:
-                    makefile.clearallvpaths()
-                else:
-                    e, t, offset = parsemakesyntax(d, offset, (), itermakefilechars)
-                    dirs = e.resolve(makefile, makefile.variables)
-                    dirlist = []
-                    for direl in data.splitwords(dirs):
-                        dirlist.extend((dir
-                                        for dir in direl.split(':')
-                                        if dir != ''))
-
-                    if len(dirlist) == 0:
-                        makefile.clearvpath(pattern)
-                    else:
-                        makefile.addvpath(pattern, dirlist)
+                currule = False
+                e, t, offset = parsemakesyntax(d, offset, (), itermakefilechars)
+                condstack[-1].append(parserdata.VPathDirective(e))
                 continue
 
             if kword == 'override':
-                e, token, offset = parsemakesyntax(d, offset, varsettokens, itermakefilechars)
-                e.lstrip()
-                e.rstrip()
+                currule = False
+                vname, token, offset = parsemakesyntax(d, offset, varsettokens, itermakefilechars)
+                vname.lstrip()
+                vname.rstrip()
 
                 if token is None:
                     raise SyntaxError("Malformed override directive, need =", d.getloc(offset))
 
-                vname = e.resolve(makefile, makefile.variables)
-                setvariable(makefile.variables, makefile.variables, makefile,
-                            vname, token, d, offset,
-                            source=data.Variables.SOURCE_OVERRIDE)
+                value = _iterflatten(itermakefilechars, d, offset).lstrip()
+
+                condstack[-1].append(parserdata.SetVariable(vname, value=value, valueloc=d.getloc(offset), token=token, targetexp=None, source=data.Variables.SOURCE_OVERRIDE))
                 continue
 
             if kword == 'export':
+                currule = False
                 e, token, offset = parsemakesyntax(d, offset, varsettokens, itermakefilechars)
                 e.lstrip()
                 e.rstrip()
-                vars = e.resolve(makefile, makefile.variables)
-                if token is None:
-                    vlist = data.splitwords(vars)
-                    if len(vlist) == 0:
-                        raise SyntaxError("Exporting all variables is not supported", d.getloc(offset))
-                else:
-                    vlist = [vars]
-                    setvariable(makefile.variables, makefile.variables, makefile,
-                                vars, token, d, offset)
 
-                for v in vlist:
-                    makefile.exportedvars.add(v)
+                if token is None:
+                    condstack[-1].append(parserdata.ExportDirective(e, single=False))
+                else:
+                    condstack[-1].append(parserdata.ExportDirective(e, single=True))
+
+                    value = _iterflatten(itermakefilechars, d, offset).lstrip()
+                    condstack[-1].append(parserdata.SetVariable(e, value=value, valueloc=d.getloc(offset), token=token, targetexp=None))
 
                 continue
 
@@ -738,20 +577,19 @@ def parsestream(fd, filename, makefile):
 
             e, token, offset = parsemakesyntax(d, offset, varsettokens + ('::', ':'), itermakefilechars)
             if token is None:
-                v = e.resolve(makefile, makefile.variables)
-                if v.strip() != '':
-                    raise SyntaxError("Bad syntax: non-empty line is not a variable assignment or rule.", loc=d.getloc(0))
+                condstack[-1].append(parserdata.EmptyDirective(e))
                 continue
 
             # if we encountered real makefile syntax, the current rule is over
-            currule = None
+            currule = False
 
             if token in varsettokens:
                 e.lstrip()
                 e.rstrip()
-                vname = e.resolve(makefile, makefile.variables)
-                setvariable(makefile.variables, makefile.variables, makefile,
-                            vname, token, d, offset)
+
+                value = _iterflatten(itermakefilechars, d, offset).lstrip()
+
+                condstack[-1].append(parserdata.SetVariable(e, value=value, valueloc=d.getloc(offset), token=token, targetexp=None))
             else:
                 doublecolon = token == '::'
 
@@ -763,88 +601,48 @@ def parsestream(fd, filename, makefile):
                 # * a pattern-specific variable definition
                 # any of the rules may have order-only prerequisites
                 # delimited by |, and a command delimited by ;
-                targets = data.splitwords(e.resolve(makefile, makefile.variables))
-                targets = [data.Pattern(p) for p in expandwildcards(makefile, targets)]
-
-                if len(targets):
-                    ispatterns = set((t.ispattern() for t in targets))
-                    if len(ispatterns) == 2:
-                        raise SyntaxError("Mixed implicit and normal rule", d.getloc(offset))
-                    ispattern, = ispatterns
-                else:
-                    ispattern = False
+                targets = e
 
                 e, token, offset = parsemakesyntax(d, offset,
                                                    varsettokens + (':', '|', ';'),
                                                    itermakefilechars)
                 if token in (None, ';'):
-                    prereqs = [p for p in expandwildcards(makefile, data.splitwords(e.resolve(makefile, makefile.variables)))]
-                    if ispattern:
-                        currule = data.PatternRule(targets, map(data.Pattern, prereqs), doublecolon, loc=d.getloc(0))
-                        makefile.appendimplicitrule(currule)
-                    else:
-                        currule = data.Rule(prereqs, doublecolon, loc=d.getloc(0))
-                        for t in targets:
-                            makefile.gettarget(t.gettarget()).addrule(currule)
-                        if len(targets):
-                            makefile.foundtarget(targets[0].gettarget())
+                    condstack[-1].append(parserdata.Rule(targets, e, doublecolon))
+                    currule = True
 
                     if token == ';':
                         offset = d.skipwhitespace(offset)
                         e, t, offset = parsemakesyntax(d, offset, (), itercommandchars)
-                        currule.addcommand(e)
+                        condstack[-1].append(parserdata.Command(e))
+
                 elif token in varsettokens:
                     e.lstrip()
                     e.rstrip()
-                    vname = e.resolve(makefile, makefile.variables)
-                    if ispattern:
-                        for target in targets:
-                            setvariable(makefile.variables,
-                                        makefile.getpatternvariables(target), makefile, vname,
-                                        token, d, offset)
-                    else:
-                        for target in targets:
-                            setvariable(makefile.variables,
-                                        makefile.gettarget(target.gettarget()).variables, makefile,
-                                        vname, token, d, offset)
+
+                    value = _iterflatten(itermakefilechars, d, offset).lstrip()
+                    condstack[-1].append(parserdata.SetVariable(e, value=value, valueloc=d.getloc(offset), token=token, targetexp=targets))
                 elif token == '|':
-                    raise NotImplementedError('order-only prerequisites not implemented')
+                    raise SyntaxError('order-only prerequisites not implemented', d.getloc(offset))
                 else:
                     assert token == ':'
-
                     # static pattern rule
-                    if ispattern:
-                        raise SyntaxError("static pattern rules must have static targets", d.getloc(0))
 
-                    patstr = e.resolve(makefile, makefile.variables)
-                    patterns = data.splitwords(patstr)
-                    if len(patterns) != 1:
-                        raise SyntaxError("A static pattern rule may have only one pattern", d.getloc(offset))
+                    pattern = e
 
-                    pattern = data.Pattern(patterns[0])
+                    deps, token, offset = parsemakesyntax(d, offset, (';',), itermakefilechars)
 
-                    e, token, offset = parsemakesyntax(d, offset, (';',), itermakefilechars)
-                    prereqs = [data.Pattern(p) for p in expandwildcards(makefile, data.splitwords(e.resolve(makefile, makefile.variables)))]
-                    currule = data.PatternRule([pattern], prereqs, doublecolon, loc=d.getloc(0))
-
-                    for t in targets:
-                        tname = t.gettarget()
-                        stem = pattern.match(tname)
-                        if stem is None:
-                            raise SyntaxError("Target '%s' of static pattern rule does not match pattern '%s'" % (tname, pattern), d.getloc(0))
-                        pinstance = data.PatternRuleInstance(currule, '', stem, pattern.ismatchany())
-                        makefile.gettarget(tname).addrule(pinstance)
-
-                    if len(targets):
-                        makefile.foundtarget(targets[0].gettarget())
+                    condstack[-1].append(parserdata.StaticPatternRule(targets, pattern, deps, doublecolon))
+                    currule = True
 
                     if token == ';':
                         offset = d.skipwhitespace(offset)
                         e, token, offset = parsemakesyntax(d, offset, (), itercommandchars)
-                        currule.addcommand(e)
+                        condstack[-1].append(parserdata.Command(e))
 
-    if len(condstack):
+    if len(condstack) != 1:
         raise SyntaxError("Condition never terminated with endif", condstack[-1].loc)
+
+    return condstack[0]
 
 PARSESTATE_TOPLEVEL = 0    # at the top level
 PARSESTATE_FUNCTION = 1    # expanding a function call. data is function
@@ -863,9 +661,7 @@ class ParseStackFrame(object):
         for key, value in kwargs.iteritems():
             setattr(self, key, value)
 
-functiontokens = list(functions.functionmap.iterkeys())
-functiontokens.sort(key=len, reverse=True)
-functiontokenlist = TokenList.get(tuple(functiontokens))
+_functiontokenlist = None
 
 def parsemakesyntax(d, startat, stopon, iterfunc):
     """
@@ -885,6 +681,12 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
     """
 
     # print "parsemakesyntax(%r)" % d.data
+
+    global _functiontokenlist
+    if _functiontokenlist is None:
+        functiontokens = list(functions.functionmap.iterkeys())
+        functiontokens.sort(key=len, reverse=True)
+        _functiontokenlist = TokenList.get(tuple(functiontokens))
 
     assert callable(iterfunc)
 
@@ -921,7 +723,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 closebrace = c == '(' and ')' or '}'
 
                 # look forward for a function name
-                fname, offset = d.findtoken(offset + 1, functiontokenlist, True)
+                fname, offset = d.findtoken(offset + 1, _functiontokenlist, True)
                 if fname is not None:
                     fn = functions.functionmap[fname](loc)
                     e = data.Expansion()
