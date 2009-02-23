@@ -38,21 +38,19 @@ class DataTest(TestBase):
 
 class TokenTest(TestBase):
     testdata = {
-        'nomatch': ('string data', 0, ('+=', ':=', '='), False, None, 0),
-        'match': ('string = val', 0, ('+=', ':=', '='), False, '=', 8),
-        'firstmatch': ('string += val', 0, ('+=', ':=', '='), False, '+=', 9),
-        'startpos': ('string += val = var', 10, ('+=', ':=', '='), False, '=', 14),
         'wsmatch': ('  ifdef FOO', 2, ('ifdef', 'else'), True, 'ifdef', 8),
         'wsnomatch': ('  unexpected FOO', 2, ('ifdef', 'else'), True, None, 2),
         'wsnows': ('  ifdefFOO', 2, ('ifdef', 'else'), True, None, 2),
-        'paren': ('$(FOO)', 5, '=)', False, ')', 6),
+        'paren': (' "hello"', 1, ('(', "'", '"'), False, '"', 2),
         }
 
     def runSingle(self, s, start, tlist, needws, etoken, eoffset):
-        d = Data.fromstring(s, None)
-        atoken, aoffset = d.findtoken(start, tlist)
+        d = pymake.parser.Data.fromstring(s, None)
+        tl = pymake.parser.TokenList.get(tlist)
+        atoken, aoffset = d.findtoken(start, tl, needws)
         self.assertEqual(atoken, etoken)
         self.assertEqual(aoffset, eoffset)
+multitest(TokenTest)
 
 class IterTest(TestBase):
     testdata = {
