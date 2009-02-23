@@ -61,28 +61,7 @@ def statustoresult(status):
 
 def getcontext(jcount):
     assert jcount > 0
-    if jcount == 1:
-        return _serialsingleton
-
     return ParallelContext(jcount)
-
-class SerialContext(object):
-    """
-    Manages the serial execution of processes.
-    """
-
-    jcount = 1
-
-    def call(self, argv, shell, env, cwd, cb, echo):
-        if echo is not None:
-            print echo
-        p = subprocess.Popen(argv, shell=shell, env=env, cwd=cwd)
-        cb(p.wait())
-
-    def finish(self):
-        pass
-
-_serialsingleton = SerialContext()
 
 class ParallelContext(object):
     """
@@ -95,7 +74,7 @@ class ParallelContext(object):
         self.jcount = jcount
         self.exit = False
 
-        self.pending = [] # list of (argv, shell, env, cwd, cb, echo)
+        self.pending = [] # list of (cb, args, kwargs)
         self.running = [] # list of (subprocess, cb)
 
         self._allcontexts.add(self)
@@ -105,12 +84,15 @@ class ParallelContext(object):
         self._allcontexts.remove(self)
 
     def run(self):
-        while (len(self.running) < self.jcount) and len(self.pending):
-            _log.debug("context<%s>: pending: %i running: %i jcount: %i running a command" % (id(self), len(self.pending), len(self.running),
-                                                                                              self.jcount))
+        while len(self.pending) and len(self.running) < self.jcount:
+            cb, args, kwargs = self.pending.pop(0)
+            _log.debug("Running callback %r with args %r kwargs %r" % (cb, args, kwargs))
+            cb(*args, **kwargs)
 
-            argv, shell, env, cwd, cb, echo = self.pending.pop(0)
+    def defer(self, cb, *args, **kwargs):
+        self.pending.append((cb, args, kwargs))
 
+    def _docall(self, argv, shell, env, cwd, cb, echo):
             if echo is not None:
                 print echo
             p = subprocess.Popen(argv, shell=shell, env=env, cwd=cwd)
@@ -121,31 +103,42 @@ class ParallelContext(object):
         Asynchronously call the process
         """
 
-        self.pending.append((argv, shell, env, cwd, cb, echo))
-        self.run()
+        self.defer(self._docall, argv, shell, env, cwd, cb, echo)
 
     @staticmethod
     def spin():
         """
-        Spin the 'event loop', and return only when it is empty.
+        Spin the 'event loop', and never return.
         """
 
+        _log.debug("Spinning the event loop")
+
         while True:
-            for c in ParallelContext._allcontexts:
+            clist = list(ParallelContext._allcontexts)
+            for c in clist:
                 c.run()
 
-            pid, status = os.waitpid(-1, 0)
-            result = statustoresult(status)
+            dowait = any((len(c.running) for c in ParallelContext._allcontexts))
 
-            found = False
+            if dowait:
+                pid, status = os.waitpid(-1, 0)
+                result = statustoresult(status)
 
-            for c in ParallelContext._allcontexts:
-                for i in xrange(0, len(c.running)):
-                    p, cb = c.running[i]
-                    if p.pid == pid:
-                        del c.running[i]
-                        cb(result)
-                        found = True
-                        break
+                found = False
+                for c in ParallelContext._allcontexts:
+                    for i in xrange(0, len(c.running)):
+                        p, cb = c.running[i]
+                        if p.pid == pid:
+                            del c.running[i]
+                            cb(result)
+                            found = True
+                            break
 
-                if found: break
+                    if found: break
+
+def makedeferrable(usercb, **userkwargs):
+    def cb(*args, **kwargs):
+        kwargs.update(userkwargs)
+        return usercb(*args, **kwargs)
+
+    return cb

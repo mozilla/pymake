@@ -146,64 +146,67 @@ def main(args, env, cwd, context, cb):
 
         overrides, targets = parserdata.parsecommandlineargs(arguments)
 
-        # subvert python readonly closures
-        o = util.makeobject(('restarts', 'm', 'remade', 'error'),
-                            restarts=-1)
+        def makecb(error, didanything, makefile, realtargets, tstack, i, firsterror):
+            if error is not None:
+                print error
+                if firsterror is None:
+                    firsterror = error
 
-        def remakecb(remade):
+            if i == len(realtargets):
+                if subcontext:
+                    context.finish()
+
+                if options.printdir:
+                    print "make.py[%i]: Leaving directory '%s'" % (makelevel, workdir)
+                sys.stdout.flush()
+
+                context.defer(cb, firsterror and 2 or 0)
+            else:
+                deferredmake = process.makedeferrable(makecb, makefile=makefile,
+                                                      realtargets=realtargets, tstack=tstack, i=i+1, firsterror=firsterror)
+
+                makefile.gettarget(realtargets[i]).make(makefile, tstack, [], cb=deferredmake)
+                                                                                  
+
+        def remakecb(remade, restarts, makefile):
             if remade:
-                o.restarts += 1
-                if o.restarts > 0:
+                if restarts > 0:
                     log.info("make.py[%i]: Restarting makefile parsing" % (makelevel,))
-                o.m = data.Makefile(restarts=o.restarts, make='%s %s' % (sys.executable, makepypath),
-                                    makeflags=makeflags, makelevel=makelevel, workdir=workdir,
-                                    context=context, env=env)
+                makefile = data.Makefile(restarts=restarts, make='%s %s' % (sys.executable, makepypath),
+                                         makeflags=makeflags, makelevel=makelevel, workdir=workdir,
+                                         context=context, env=env)
 
-                overrides.execute(o.m)
-                for f in options.makefiles:
-                    o.m.include(f)
+                try:
+                    overrides.execute(makefile)
+                    for f in options.makefiles:
+                        makefile.include(f)
+                    makefile.finishparsing()
+                    makefile.remakemakefiles(process.makedeferrable(remakecb, restarts=restarts + 1, makefile=makefile))
 
-                o.m.finishparsing()
-                o.m.remakemakefiles(remakecb)
+                except util.MakeError, e:
+                    print e
+                    context.defer(cb, 2)
+                    return
+
                 return
 
             if len(targets) == 0:
-                if o.m.defaulttarget is None:
+                if makefile.defaulttarget is None:
                     print "No target specified and no default target found."
-                    cb(2)
+                    context.defer(cb, 2)
                     return
-                finaltargets = [o.m.defaulttarget]
+
+                realtargets = [makefile.defaulttarget]
                 tstack = ['<default-target>']
             else:
-                finaltargets = targets
+                realtargets = targets
                 tstack = ['<command-line>']
 
-            def makecb(error, didanything):
-                o.remade += 1
+            deferredmake = process.makedeferrable(makecb, makefile=makefile,
+                                                  realtargets=realtargets, tstack=tstack, i=1, firsterror=None)
+            makefile.gettarget(realtargets[0]).make(makefile, tstack, [], cb=deferredmake)
 
-                log.debug("makecb[%i]: remade %i targets" % (makelevel, o.remade))
-
-                if error is not None:
-                    print error
-                    o.error = True
-
-                if o.remade == len(finaltargets):
-                    if subcontext:
-                        context.finish()
-
-                    if options.printdir:
-                        print "make.py[%i]: Leaving directory '%s'" % (makelevel, workdir)
-                    sys.stdout.flush()
-
-                    cb(o.error and 2 or 0)
-
-            o.remade = 0
-            o.error = False
-
-            for t in finaltargets:
-                o.m.gettarget(t).make(o.m, ['<command-line>'], [], cb=makecb)
-
-        remakecb(True)
+        context.defer(remakecb, True, 0, None)
 
     except (util.MakeError), e:
         print e
