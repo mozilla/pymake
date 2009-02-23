@@ -1172,9 +1172,8 @@ class Makefile(object):
 
         fspath = os.path.join(self.workdir, path)
         if os.path.exists(fspath):
-            fd = open(fspath)
+            stmts = pymake.parser.parsefile(fspath)
             self.variables.append('MAKEFILE_LIST', Variables.SOURCE_AUTOMATIC, path, None, self)
-            stmts = pymake.parser.parsestream(fd, path)
             stmts.execute(self)
             self.gettarget(path).explicit = True
         elif required:
