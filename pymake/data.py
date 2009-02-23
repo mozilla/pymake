@@ -461,7 +461,9 @@ class Target(object):
 
         candidates = [] # list of PatternRuleInstance
 
-        hasmatch = any((r.hasmatch(file) for r in makefile.implicitrules))
+        hasmatch = any((r.hasspecificmatch(file) for r in makefile.implicitrules))
+        log.debug("Does any implicit rule match '%s'? %s" % (self.target, hasmatch))
+
         for r in makefile.implicitrules:
             if r in rulestack:
                 log.info(indent + " %s: Avoiding implicit rule recursion" % (r.loc,))
@@ -1008,9 +1010,9 @@ class PatternRule(object):
     def ismatchany(self):
         return any((t.ismatchany() for t in self.targetpatterns))
 
-    def hasmatch(self, file):
+    def hasspecificmatch(self, file):
         for p in self.targetpatterns:
-            if p.match(file) is not None:
+            if not p.ismatchany() and p.match(file) is not None:
                 return True
 
         return False
