@@ -21,7 +21,7 @@ def WaitForAnyProcess(processes):
     arrtype = HANDLE * len(processes)
     harray = arrtype(*(int(p._handle) for p in processes))
 
-    r = _WaitForMultipleObjects(1, harray, False, INFINITE)
+    r = _WaitForMultipleObjects(len(processes), harray, False, INFINITE)
     if r == WAIT_FAILED:
         raise WinError()
 
