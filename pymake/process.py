@@ -33,7 +33,7 @@ def call(cline, env, cwd, loc, cb, context, echo):
     argv = clinetoargv(cline)
     #TODO: call this once up-front somewhere and save the result?
     shell, prependshell = util.checkmsyscompat()
-    if argv is None or (len(argv) and argv[0] in shellwords):
+    if argv is None or (len(argv) and argv[0] in shellwords) or cline.startswith('/'):
         _log.debug("%s: Running command through shell because of shell metacharacters" % (loc,))
         if prependshell:
             cline = [shell, "-c", cline]
@@ -53,8 +53,13 @@ def call(cline, env, cwd, loc, cb, context, echo):
         command.main(argv[2:], env, cwd, context, cb)
         return
 
+    if argv[0].find('/') != -1:
+	executable = os.path.join(cwd, argv[0])
+    else:
+        executable = None
+
     _log.debug("%s: skipping shell, no metacharacters found" % (loc,))
-    context.call(argv, shell=False, env=env, cwd=cwd, cb=cb, echo=echo)
+    context.call(argv, executable=executable, shell=False, env=env, cwd=cwd, cb=cb, echo=echo)
 
 def statustoresult(status):
     """
@@ -99,23 +104,24 @@ class ParallelContext(object):
     def defer(self, cb, *args, **kwargs):
         self.pending.append((cb, args, kwargs))
 
-    def _docall(self, argv, shell, env, cwd, cb, echo):
+    def _docall(self, argv, executable, shell, env, cwd, cb, echo):
             if echo is not None:
                 print echo
             try:
-                p = subprocess.Popen(argv, shell=shell, env=env, cwd=cwd)
-            except OSError:
+                p = subprocess.Popen(argv, executable=executable, shell=shell, env=env, cwd=cwd)
+            except OSError, e:
+	        _log.info("Process with argv %r raised exception: %s" % (argv, e))
                 cb(2)
                 return
 
             self.running.append((p, cb))
 
-    def call(self, argv, shell, env, cwd, cb, echo):
+    def call(self, argv, shell, env, cwd, cb, echo, executable=None):
         """
         Asynchronously call the process
         """
 
-        self.defer(self._docall, argv, shell, env, cwd, cb, echo)
+        self.defer(self._docall, argv, executable, shell, env, cwd, cb, echo)
 
     if sys.platform == 'win32':
         @staticmethod
