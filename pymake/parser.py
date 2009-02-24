@@ -366,18 +366,6 @@ def ensureend(d, offset, msg, ifunc=itermakefilechars):
         if c != '' and not c.isspace():
             raise SyntaxError(msg, d.getloc(o))
 
-def iterlines(fd):
-    """Yield (lineno, line) for each line in fd"""
-
-    lineno = 0
-    for line in fd:
-        lineno += 1
-
-        if line.endswith('\r\n'):
-            line = line[:-2] + '\n'
-
-        yield (lineno, line)
-
 eqargstokenlist = TokenList.get(('(', "'", '"'))
 
 def ifeq(d, offset):
@@ -464,7 +452,7 @@ def parsefile(pathname):
 
         log.debug("Not using '%s' from the parser cache, mtimes don't match: was %s, now %s" % (pathname, oldmtime, mtime))
 
-    stmts = parsestream(open(pathname), pathname)
+    stmts = parsestream(open(pathname, "rU"), pathname)
     _parsecache[pathname] = mtime, stmts
     return stmts
 
@@ -478,7 +466,7 @@ def parsestream(fd, filename):
     currule = False
     condstack = [parserdata.StatementList()]
 
-    fdlines = iterlines(fd)
+    fdlines = enumerate(fd)
 
     while True:
         assert len(condstack) > 0
