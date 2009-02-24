@@ -102,7 +102,12 @@ class ParallelContext(object):
     def _docall(self, argv, shell, env, cwd, cb, echo):
             if echo is not None:
                 print echo
-            p = subprocess.Popen(argv, shell=shell, env=env, cwd=cwd)
+            try:
+                p = subprocess.Popen(argv, shell=shell, env=env, cwd=cwd)
+            except OSError:
+                cb(2)
+                return
+
             self.running.append((p, cb))
 
     def call(self, argv, shell, env, cwd, cb, echo):
