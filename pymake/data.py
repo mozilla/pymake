@@ -733,10 +733,10 @@ class Target(object):
 
             if o.error is not None:
                 notifyfinished()
-
-            o.unmadedeps += 1
-            d.make(makefile, targetstack, [], cb=depfinished)
-            makefile.context.defer(startdep)
+            else:
+                o.unmadedeps += 1
+                d.make(makefile, targetstack, [], cb=depfinished)
+                makefile.context.defer(startdep)
 
         def notifyfinished():
             o.unmadedeps -= 1
