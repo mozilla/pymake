@@ -21,7 +21,7 @@ This file parses into the data structures defined in the parserdata module. Thos
 do the dirty work of "executing" the parsed data into a Makefile data structure.
 """
 
-import logging, re
+import logging, re, os
 import data, functions, util, parserdata
 
 log = logging.getLogger('pymake.parser')
@@ -447,6 +447,26 @@ directivestokenlist = TokenList.get(conditiontokens + \
 conditionkeywordstokenlist = TokenList.get(conditiontokens)
 
 varsettokens = (':=', '+=', '?=', '=')
+
+_parsecache = {} # realpath -> (mtime, Statements)
+
+def parsefile(pathname):
+    pathname = os.path.realpath(pathname)
+
+    mtime = os.path.getmtime(pathname)
+
+    if pathname in _parsecache:
+        oldmtime, stmts = _parsecache[pathname]
+
+        if mtime == oldmtime:
+            log.debug("Using '%s' from the parser cache.", pathname)
+            return stmts
+
+        log.debug("Not using '%s' from the parser cache, mtimes don't match: was %s, now %s" % (pathname, oldmtime, mtime))
+
+    stmts = parsestream(open(pathname), pathname)
+    _parsecache[pathname] = mtime, stmts
+    return stmts
 
 def parsestream(fd, filename):
     """

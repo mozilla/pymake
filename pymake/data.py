@@ -461,7 +461,9 @@ class Target(object):
 
         candidates = [] # list of PatternRuleInstance
 
-        hasmatch = any((r.hasmatch(file) for r in makefile.implicitrules))
+        hasmatch = any((r.hasspecificmatch(file) for r in makefile.implicitrules))
+        log.debug("Does any implicit rule match '%s'? %s" % (self.target, hasmatch))
+
         for r in makefile.implicitrules:
             if r in rulestack:
                 log.info(indent + " %s: Avoiding implicit rule recursion" % (r.loc,))
@@ -652,7 +654,7 @@ class Target(object):
         self.mtime = None
         self.vpathtarget = self.target
 
-    def _notifyerror(self, e):
+    def _notifyerror(self, makefile, e):
         log.debug("Making target '%s' failed with error %s" % (self.target, e))
 
         if self._state == MAKESTATE_FINISHED:
@@ -662,10 +664,10 @@ class Target(object):
         self._state = MAKESTATE_FINISHED
         self._makeerror = e
         for cb in self._callbacks:
-            cb(error=e, didanything=None)
+            makefile.context.defer(cb, error=e, didanything=None)
         del self._callbacks 
 
-    def _notifysuccess(self, didanything):
+    def _notifysuccess(self, makefile, didanything):
         log.debug("Making target '%s' succeeded" % (self.target,))
 
         self._state = MAKESTATE_FINISHED
@@ -673,7 +675,7 @@ class Target(object):
         self._didanything = didanything
 
         for cb in self._callbacks:
-            cb(error=None, didanything=didanything)
+            makefile.context.defer(cb, error=None, didanything=didanything)
 
         del self._callbacks
 
@@ -683,7 +685,8 @@ class Target(object):
         by enclosed functions:
 
         * resolve dependencies (synchronous)
-        * remake dependencies (asynchronous, toplevel, callback is `depcallback`
+        * remake dependencies (asynchronous, toplevel, callback to start each dependency is `depstart`,
+          callback when each is finished is `depfinished``
         * build list of commands to execute (synchronous, in `makeself`)
         * execute each command (asynchronous, makeself.commandcb)
 
@@ -715,8 +718,35 @@ class Target(object):
 
         # this object exists solely as a container to subvert python's read-only closures
         o = pymake.util.makeobject(('unmadedeps', 'didanything', 'error'))
-        
-        def depcallback(error, didanything):
+
+        def iterdeps():
+            for r, deps in _resolvedrules:
+                for d in deps:
+                    yield d
+
+        def startdep():
+            try:
+                d = depiterator.next()
+            except StopIteration:
+                notifyfinished()
+                return
+
+            if o.error is not None:
+                notifyfinished()
+
+            o.unmadedeps += 1
+            d.make(makefile, targetstack, [], cb=depfinished)
+            makefile.context.defer(startdep)
+
+        def notifyfinished():
+            o.unmadedeps -= 1
+            if o.unmadedeps == 0:
+                if o.error:
+                    self._notifyerror(makefile, o.error)
+                else:
+                    makeself()
+
+        def depfinished(error, didanything):
             assert self._state == MAKESTATE_WORKING
 
             if error is not None:
@@ -726,15 +756,7 @@ class Target(object):
                 if didanything:
                     o.didanything = True
 
-            o.unmadedeps -= 1
-
-            if o.unmadedeps != 0:
-                return
-
-            if o.error:
-                self._notifyerror(o.error)
-            else:
-                makeself()
+            notifyfinished()
 
         def makeself():
             """
@@ -790,13 +812,13 @@ class Target(object):
 
             def commandcb(error):
                 if error is not None:
-                    self._notifyerror(error)
+                    self._notifyerror(makefile, error)
                     return
 
                 if len(commands):
                     commands.pop(0)(commandcb)
                 else:
-                    self._notifysuccess(o.didanything)
+                    self._notifysuccess(makefile, o.didanything)
 
             commandcb(None)
                     
@@ -813,15 +835,11 @@ class Target(object):
             o.unmadedeps = 1
             o.error = None
 
-            for r, deps in _resolvedrules:
-                for d in deps:
-                    o.unmadedeps += 1
-                    d.make(makefile, targetstack, [], cb=depcallback)
+            depiterator = iterdeps()
+            startdep()
 
-            depcallback(error=None, didanything=False)
-        
         except pymake.util.MakeError, e:
-            self._notifyerror(e)
+            self._notifyerror(makefile, e)
 
 def dirpart(p):
     d, s, f = p.rpartition('/')
@@ -1008,9 +1026,9 @@ class PatternRule(object):
     def ismatchany(self):
         return any((t.ismatchany() for t in self.targetpatterns))
 
-    def hasmatch(self, file):
+    def hasspecificmatch(self, file):
         for p in self.targetpatterns:
-            if p.match(file) is not None:
+            if not p.ismatchany() and p.match(file) is not None:
                 return True
 
         return False
@@ -1170,9 +1188,8 @@ class Makefile(object):
 
         fspath = os.path.join(self.workdir, path)
         if os.path.exists(fspath):
-            fd = open(fspath)
+            stmts = pymake.parser.parsefile(fspath)
             self.variables.append('MAKEFILE_LIST', Variables.SOURCE_AUTOMATIC, path, None, self)
-            stmts = pymake.parser.parsestream(fd, path)
             stmts.execute(self)
             self.gettarget(path).explicit = True
         elif required:
