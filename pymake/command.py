@@ -196,6 +196,7 @@ def main(args, env, cwd, context, cb):
                     context.defer(cb, 2)
                     return
 
+                log.info("Making default target %s" % (makefile.defaulttarget,))
                 realtargets = [makefile.defaulttarget]
                 tstack = ['<default-target>']
             else:

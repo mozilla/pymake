@@ -898,23 +898,9 @@ def findmodifiers(command):
     isRecursive = False
     ignoreErrors = False
 
-    while len(command):
-        c = command[0]
-        if c == '@' and not isHidden:
-            command = command[1:]
-            isHidden = True
-        elif c == '+' and not isRecursive:
-            command = command[1:]
-            isRecursive = True
-        elif c == '-' and not ignoreErrors:
-            command = command[1:]
-            ignoreErrors = True
-        elif c.isspace():
-            command = command[1:]
-        else:
-            break
-
-    return command, isHidden, isRecursive, ignoreErrors
+    realcommand = command.lstrip('@+-')
+    modset = set(command[:-len(realcommand)])
+    return realcommand, '@' in modset, '+' in modset, '-' in modset
 
 class CommandWrapper(object):
     def __init__(self, cline, ignoreErrors, loc, context, **kwargs):
