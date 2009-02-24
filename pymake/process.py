@@ -113,8 +113,8 @@ class ParallelContext(object):
         self.defer(self._docall, argv, shell, env, cwd, cb, echo)
 
     if sys.platform == 'win32':
-	@staticmethod
-	def _waitany():
+        @staticmethod
+        def _waitany():
             return win32process.WaitForAnyProcess([p for c in ParallelContext._allcontexts for p, cb in c.running])
 
         @staticmethod

@@ -23,6 +23,6 @@ def WaitForAnyProcess(processes):
 
     r = _WaitForMultipleObjects(1, harray, False, INFINITE)
     if r == WAIT_FAILED:
-	raise WinError()
+        raise WinError()
 
     return processes[r], GetExitCodeProcess(int(processes[r]._handle)) <<8
