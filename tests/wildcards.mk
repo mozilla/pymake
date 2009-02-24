@@ -1,13 +1,14 @@
 $(shell \
 mkdir foo; \
 touch a.c b.c c.out foo/d.c; \
-sleep 1; \
+sleep 2; \
 touch c.in; \
 )
 
 VPATH = foo
 
 all: c.out prog
+	cat $<
 	test "$$(cat $<)" = "remadec.out"
 	@echo TEST-PASS
 

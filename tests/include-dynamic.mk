@@ -1,7 +1,7 @@
 $(shell \
 if ! test -f include-dynamic.inc; then \
   echo "TESTVAR = oldval" > include-dynamic.inc; \
-  sleep 1; \
+  sleep 2; \
   echo "TESTVAR = newval" > include-dynamic.inc.in; \
 fi \
 )
