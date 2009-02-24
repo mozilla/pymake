@@ -1,6 +1,6 @@
 define COMMAND
 $(1)
-$(1)
+ 	$(1)
 
 endef
 
