@@ -616,7 +616,7 @@ class Target(object):
                         libname = lp.resolve('', stem)
 
                         for dir in searchdirs:
-                            libpath = os.path.join(dir, libname)
+                            libpath = os.path.join(dir, libname).replace('\\', '/')
                             fspath = os.path.join(makefile.workdir, libpath)
                             mtime = getmtime(fspath)
                             if mtime is not None:
@@ -630,11 +630,11 @@ class Target(object):
 
         search = [self.target]
         if not os.path.isabs(self.target):
-            search += [os.path.join(dir, self.target)
+            search += [os.path.join(dir, self.target).replace('\\', '/')
                        for dir in makefile.getvpath(self.target)]
 
         for t in search:
-            fspath = os.path.join(makefile.workdir, t)
+            fspath = os.path.join(makefile.workdir, t).replace('\\', '/')
             mtime = getmtime(fspath)
             if mtime is not None:
                 self.vpathtarget = t
@@ -697,7 +697,7 @@ class Target(object):
         if self._state == MAKESTATE_FINISHED:
             if self._makeerror is not None:
                 log.debug("Already made target '%s', got error %s" % (self.target, self._makeerror))
-                cb(error=self._makeerror)
+                cb(error=self._makeerror, didanything=False) #XXX?
             else:
                 log.debug("Already made target '%s'" % (self.target,))
                 cb(error=None, didanything=self._didanything)
@@ -1084,7 +1084,7 @@ class Makefile(object):
         workdir = os.path.realpath(workdir)
         self.workdir = workdir
         self.variables.set('CURDIR', Variables.FLAVOR_SIMPLE,
-                           Variables.SOURCE_AUTOMATIC, workdir)
+                           Variables.SOURCE_AUTOMATIC, workdir.replace('\\','/'))
 
         # the list of included makefiles, whether or not they existed
         self.included = []

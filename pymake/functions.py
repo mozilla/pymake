@@ -4,6 +4,7 @@ Makefile functions.
 
 import parser
 import data
+import util
 import subprocess, os, logging
 from pymake.globrelative import glob
 from cStringIO import StringIO
@@ -367,7 +368,7 @@ class WildcardFunction(Function):
 
         r = []
         for p in patterns:
-            r.extend(glob(makefile.workdir, p))
+            r.extend([x.replace('\\','/') for x in glob(makefile.workdir, p)])
         return ' '.join(r)
 
 class RealpathFunction(Function):
@@ -378,7 +379,7 @@ class RealpathFunction(Function):
     def resolve(self, makefile, variables, setting):
         paths = data.splitwords(self._arguments[0].resolve(makefile, variables, setting))
         fspaths = [os.path.join(makefile.workdir, path) for path in paths]
-        realpaths = [os.path.realpath(path) for path in fspaths]
+        realpaths = [os.path.realpath(path).replace('\\','/') for path in fspaths]
         return ' '.join(realpaths)
 
 class AbspathFunction(Function):
@@ -389,7 +390,7 @@ class AbspathFunction(Function):
     def resolve(self, makefile, variables, setting):
         assert os.path.isabs(makefile.workdir)
         paths = data.splitwords(self._arguments[0].resolve(makefile, variables, setting))
-        fspaths = [os.path.join(makefile.workdir, path) for path in paths]
+        fspaths = [os.path.join(makefile.workdir, path).replace('\\','/') for path in paths]
         return ' '.join(fspaths)
 
 class IfFunction(Function):
@@ -570,11 +571,14 @@ class ShellFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
+        #TODO: call this once up-front somewhere and save the result?
+        shell, prependshell = util.checkmsyscompat()
         cline = self._arguments[0].resolve(makefile, variables, setting)
 
         log.debug("%s: running shell command '%s'" % (self.loc, cline))
-
-        p = subprocess.Popen(cline, shell=True, stdout=subprocess.PIPE, cwd=makefile.workdir)
+        if prependshell:
+            cline = [shell, "-c", cline]
+        p = subprocess.Popen(cline, shell=not prependshell, stdout=subprocess.PIPE, cwd=makefile.workdir)
         stdout, stderr = p.communicate()
 
         stdout = stdout.replace('\r\n', '\n')

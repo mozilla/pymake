@@ -4,7 +4,11 @@ parsing command lines into argv and making sure that no shell magic is being use
 """
 
 import subprocess, shlex, re, logging, sys, traceback, os
-import command
+import command, util
+if sys.platform=='win32':
+    import ctypes
+    SYNCHRONIZE = 0x00100000
+    INFINITE = -1
 
 _log = logging.getLogger('pymake.process')
 
@@ -29,9 +33,13 @@ shellwords = (':', '.', 'break', 'cd', 'continue', 'exec', 'exit', 'export',
 
 def call(cline, env, cwd, loc, cb, context, echo):
     argv = clinetoargv(cline)
+    #TODO: call this once up-front somewhere and save the result?
+    shell, prependshell = util.checkmsyscompat()
     if argv is None or (len(argv) and argv[0] in shellwords):
         _log.debug("%s: Running command through shell because of shell metacharacters" % (loc,))
-        context.call(cline, shell=True, env=env, cwd=cwd, cb=cb, echo=echo)
+        if prependshell:
+            cline = [shell, "-c", cline]
+        context.call(cline, shell=not prependshell, env=env, cwd=cwd, cb=cb, echo=echo)
         return
 
     if not len(argv):
@@ -42,7 +50,8 @@ def call(cline, env, cwd, loc, cb, context, echo):
         command.main(argv[1:], env, cwd, context, cb)
         return
 
-    if argv[0:2] == [sys.executable, command.makepypath]:
+    if argv[0:2] == [sys.executable.replace('\\', '/'),
+                     command.makepypath.replace('\\', '/')]:
         command.main(argv[2:], env, cwd, context, cb)
         return
 
@@ -70,6 +79,10 @@ class ParallelContext(object):
 
     _allcontexts = set()
 
+    # For Windows, we need to keep track of process handles
+    # so we can wait on them.
+    _handles = {}
+
     def __init__(self, jcount):
         self.jcount = jcount
         self.exit = False
@@ -95,7 +108,7 @@ class ParallelContext(object):
     def _docall(self, argv, shell, env, cwd, cb, echo):
             if echo is not None:
                 print echo
-            p = subprocess.Popen(argv, shell=shell, env=env, cwd=cwd)
+            p = ParallelContext._popen(argv, shell=shell, env=env, cwd=cwd)
             self.running.append((p, cb))
 
     def call(self, argv, shell, env, cwd, cb, echo):
@@ -104,6 +117,32 @@ class ParallelContext(object):
         """
 
         self.defer(self._docall, argv, shell, env, cwd, cb, echo)
+
+    @staticmethod
+    def _popen(argv, **kwargs):
+        p = subprocess.Popen(argv, **kwargs)
+        if sys.platform=='win32':
+            # we need a handle so we can wait on it
+            h = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE, False, p.pid)
+            ParallelContext._handles[h] = p.pid
+        return p
+
+    @staticmethod
+    def _waitanypid():
+        if sys.platform != 'win32':
+            pid, status = os.waitpid(-1, 0)
+        else:
+            arrtype = ctypes.c_long * len(ParallelContext._handles)
+            handle_array = arrtype(*ParallelContext._handles.keys())
+            ret = ctypes.windll.kernel32.WaitForMultipleObjects(len(handle_array), handle_array, False, INFINITE)
+            h = handle_array[ret]
+            exitcode = ctypes.c_long()
+            ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(exitcode))
+            ctypes.windll.kernel32.CloseHandle(h)
+            pid = ParallelContext._handles[h]
+            status = exitcode.value <<8
+            del ParallelContext._handles[h]
+        return (pid, status)
 
     @staticmethod
     def spin():
@@ -121,7 +160,7 @@ class ParallelContext(object):
             dowait = any((len(c.running) for c in ParallelContext._allcontexts))
 
             if dowait:
-                pid, status = os.waitpid(-1, 0)
+                pid, status = ParallelContext._waitanypid()
                 result = statustoresult(status)
 
                 found = False

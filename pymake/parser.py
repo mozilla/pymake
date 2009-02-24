@@ -551,6 +551,7 @@ def parsestream(fd, filename):
                 currule = False
                 incfile, t, offset = parsemakesyntax(d, offset, (), itermakefilechars)
                 condstack[-1].append(parserdata.Include(incfile, kword == 'include'))
+
                 continue
 
             if kword == 'vpath':
