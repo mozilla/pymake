@@ -54,7 +54,7 @@ def call(cline, env, cwd, loc, cb, context, echo):
         return
 
     if argv[0].find('/') != -1:
-	executable = os.path.join(cwd, argv[0])
+        executable = os.path.join(cwd, argv[0])
     else:
         executable = None
 
@@ -110,7 +110,7 @@ class ParallelContext(object):
             try:
                 p = subprocess.Popen(argv, executable=executable, shell=shell, env=env, cwd=cwd)
             except OSError, e:
-	        _log.info("Process with argv %r raised exception: %s" % (argv, e))
+                _log.info("Process with argv %r raised exception: %s" % (argv, e))
                 cb(2)
                 return
 
