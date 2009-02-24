@@ -114,7 +114,7 @@ class Rule(Statement):
         self.doublecolon = doublecolon
 
     def execute(self, makefile, context):
-        atargets = data.splitwords(self.targetexp.resolve(makefile, makefile.variables))
+        atargets = data.stripdotslashes(self.targetexp.resolve(makefile, makefile.variables).split())
         targets = [data.Pattern(p) for p in _expandwildcards(makefile, atargets)]
 
         if not len(targets):
@@ -126,7 +126,7 @@ class Rule(Statement):
             raise data.DataError("Mixed implicit and normal rule", self.targetexp.loc)
         ispattern, = ispatterns
 
-        deps = [p for p in _expandwildcards(makefile, data.splitwords(self.depexp.resolve(makefile, makefile.variables)))]
+        deps = [p for p in _expandwildcards(makefile, data.stripdotslashes(self.depexp.resolve(makefile, makefile.variables).split()))]
         if ispattern:
             rule = data.PatternRule(targets, map(data.Pattern, deps), self.doublecolon, loc=self.targetexp.loc)
             makefile.appendimplicitrule(rule)
@@ -153,18 +153,18 @@ class StaticPatternRule(Statement):
         self.doublecolon = doublecolon
 
     def execute(self, makefile, context):
-        targets = list(_expandwildcards(makefile, data.splitwords(self.targetexp.resolve(makefile, makefile.variables))))
+        targets = list(_expandwildcards(makefile, data.stripdotslashes(self.targetexp.resolve(makefile, makefile.variables).split())))
 
         if not len(targets):
             context.currule = DummyRule()
             return
 
-        patterns = data.splitwords(self.patternexp.resolve(makefile, makefile.variables))
+        patterns = list(data.stripdotslashes(self.patternexp.resolve(makefile, makefile.variables).split()))
         if len(patterns) != 1:
             raise data.DataError("Static pattern rules must have a single pattern", self.patternexp.loc)
         pattern = data.Pattern(patterns[0])
 
-        deps = [data.Pattern(p) for p in _expandwildcards(makefile, data.splitwords(self.depexp.resolve(makefile, makefile.variables)))]
+        deps = [data.Pattern(p) for p in _expandwildcards(makefile, data.stripdotslashes(self.depexp.resolve(makefile, makefile.variables).split()))]
 
         rule = data.PatternRule([pattern], deps, self.doublecolon, loc=self.targetexp.loc)
 
@@ -220,7 +220,7 @@ class SetVariable(Statement):
         else:
             setvariables = []
 
-            targets = [data.Pattern(t) for t in data.splitwords(self.targetexp.resolve(makefile, makefile.variables))]
+            targets = [data.Pattern(t) for t in data.stripdotslashes(self.targetexp.resolve(makefile, makefile.variables).split())]
             for t in targets:
                 if t.ispattern():
                     setvariables.append(makefile.getpatternvariables(t))
@@ -358,7 +358,7 @@ class Include(Statement):
         self.required = required
 
     def execute(self, makefile, context):
-        files = data.splitwords(self.exp.resolve(makefile, makefile.variables))
+        files = self.exp.resolve(makefile, makefile.variables).split()
         for f in files:
             makefile.include(f, self.required, loc=self.exp.loc)
 
@@ -371,7 +371,7 @@ class VPathDirective(Statement):
         self.exp = exp
 
     def execute(self, makefile, context):
-        words = data.splitwords(self.exp.resolve(makefile, makefile.variables))
+        words = list(data.stripdotslashes(self.exp.resolve(makefile, makefile.variables).split()))
         if len(words) == 0:
             makefile.clearallvpaths()
         else:
@@ -401,7 +401,7 @@ class ExportDirective(Statement):
         if self.single:
             vlist = [self.exp.resolve(makefile, makefile.variables)]
         else:
-            vlist = data.splitwords(self.exp.resolve(makefile, makefile.variables))
+            vlist = self.exp.resolve(makefile, makefile.variables).split()
             if not len(vlist):
                 raise data.DataError("Exporting all variables is not supported", self.exp.loc)
 

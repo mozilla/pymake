@@ -47,18 +47,14 @@ def getmtime(path):
     except OSError:
         return None
 
-_ws = re.compile(r'\s+')
+def stripdotslash(s):
+    if s.startswith('./'):
+        return s[2:]
+    return s
 
-def splitwords(s):
-    """Split string s into words delimited by whitespace."""
-
-    words = _ws.split(s)
-    for i in (0, -1):
-        if len(words) == 0:
-            break
-        if words[i] == '':
-            del words[i]
-    return words
+def stripdotslashes(sl):
+    for s in sl:
+        yield stripdotslash(s)
 
 def getindent(stack):
     return ''.ljust(len(stack) - 1)
@@ -604,7 +600,7 @@ class Target(object):
             stem = self.target[2:]
             f, s, e = makefile.variables.get('.LIBPATTERNS')
             if e is not None:
-                libpatterns = map(Pattern, splitwords(e.resolve(makefile, makefile.variables)))
+                libpatterns = [Pattern(stripdotslash(s)) for s in e.resolve(makefile, makefile.variables).split()]
                 if len(libpatterns):
                     searchdirs = ['']
                     searchdirs.extend(makefile.getvpath(self.target))

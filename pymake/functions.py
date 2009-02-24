@@ -92,7 +92,6 @@ class SubstitutionRef(Function):
             return ''
 
         evalue = value.resolve(makefile, variables, setting + [vname])
-        words = data.splitwords(evalue)
 
         f = data.Pattern(substfrom)
         if not f.ispattern():
@@ -100,7 +99,7 @@ class SubstitutionRef(Function):
             substto = '%' + substto
 
         return " ".join((f.subst(substto, word, False)
-                         for word in words))
+                         for word in evalue.split()))
 
 class SubstFunction(Function):
     name = 'subst'
@@ -125,7 +124,7 @@ class PatSubstFunction(Function):
 
         p = data.Pattern(s)
         return ' '.join((p.subst(r, word, False)
-                         for word in data.splitwords(d)))
+                         for word in d.split()))
 
 class StripFunction(Function):
     name = 'strip'
@@ -133,7 +132,7 @@ class StripFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        return ' '.join(data.splitwords(self._arguments[0].resolve(makefile, variables, setting)))
+        return ' '.join(self._arguments[0].resolve(makefile, variables, setting).split())
 
 class FindstringFunction(Function):
     name = 'findstring'
@@ -155,9 +154,9 @@ class FilterFunction(Function):
     def resolve(self, makefile, variables, setting):
         ps = self._arguments[0].resolve(makefile, variables, setting)
         d = self._arguments[1].resolve(makefile, variables, setting)
-        plist = [data.Pattern(p) for p in data.splitwords(ps)]
+        plist = [data.Pattern(p) for p in ps.split()]
         r = []
-        for w in data.splitwords(d):
+        for w in d.split():
             if any((p.match(w) for p in plist)):
                     r.append(w)
                 
@@ -171,9 +170,9 @@ class FilteroutFunction(Function):
     def resolve(self, makefile, variables, setting):
         ps = self._arguments[0].resolve(makefile, variables, setting)
         d = self._arguments[1].resolve(makefile, variables, setting)
-        plist = [data.Pattern(p) for p in data.splitwords(ps)]
+        plist = [data.Pattern(p) for p in ps.split()]
         r = []
-        for w in data.splitwords(d):
+        for w in d.split():
             found = False
             if not any((p.match(w) for p in plist)):
                 r.append(w)
@@ -187,7 +186,7 @@ class SortFunction(Function):
 
     def resolve(self, makefile, variables, setting):
         d = self._arguments[0].resolve(makefile, variables, setting)
-        w = data.splitwords(d)
+        w = d.split()
         w.sort()
         return ' '.join((w for w in data.withoutdups(w)))
 
@@ -200,7 +199,7 @@ class WordFunction(Function):
         n = self._arguments[0].resolve(makefile, variables, setting)
         # TODO: provide better error if this doesn't convert
         n = int(n)
-        words = data.splitwords(self._arguments[1].resolve(makefile, variables, setting))
+        words = self._arguments[1].resolve(makefile, variables, setting).split()
         if n < 1 or n > len(words):
             return ''
         return words[n - 1]
@@ -217,7 +216,7 @@ class WordlistFunction(Function):
         nfrom = int(nfrom)
         nto = int(nto)
 
-        words = data.splitwords(self._arguments[2].resolve(makefile, variables, setting))
+        words = self._arguments[2].resolve(makefile, variables, setting).split()
 
         if nfrom < 1:
             nfrom = 1
@@ -232,7 +231,7 @@ class WordsFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        return str(len(data.splitwords(self._arguments[0].resolve(makefile, variables, setting))))
+        return str(len(self._arguments[0].resolve(makefile, variables, setting).split()))
 
 class FirstWordFunction(Function):
     name = 'firstword'
@@ -240,7 +239,7 @@ class FirstWordFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        wl = data.splitwords(self._arguments[0].resolve(makefile, variables, setting))
+        wl = self._arguments[0].resolve(makefile, variables, setting).split()
         if len(wl) == 0:
             return ''
         return wl[0]
@@ -251,7 +250,7 @@ class LastWordFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        wl = data.splitwords(self._arguments[0].resolve(makefile, variables, setting))
+        wl = self._arguments[0].resolve(makefile, variables, setting).split()
         if len(wl) == 0:
             return ''
         return wl[0]
@@ -274,7 +273,7 @@ class DirFunction(Function):
 
     def resolve(self, makefile, variables, setting):
         return ' '.join((pathsplit(path)[0]
-                         for path in data.splitwords(self._arguments[0].resolve(makefile, variables, setting))))
+                         for path in self._arguments[0].resolve(makefile, variables, setting).split()))
 
 class NotDirFunction(Function):
     name = 'notdir'
@@ -283,7 +282,7 @@ class NotDirFunction(Function):
 
     def resolve(self, makefile, variables, setting):
         return ' '.join((pathsplit(path)[1]
-                         for path in data.splitwords(self._arguments[0].resolve(makefile, variables, setting))))
+                         for path in self._arguments[0].resolve(makefile, variables, setting).split()))
 
 class SuffixFunction(Function):
     name = 'suffix'
@@ -299,7 +298,7 @@ class SuffixFunction(Function):
                 yield dot + suffix
 
     def resolve(self, makefile, variables, setting):
-        return ' '.join(self.suffixes(data.splitwords(self._arguments[0].resolve(makefile, variables, setting))))
+        return ' '.join(self.suffixes(self._arguments[0].resolve(makefile, variables, setting).split()))
 
 class BasenameFunction(Function):
     name = 'basename'
@@ -317,7 +316,7 @@ class BasenameFunction(Function):
             yield dir + base
 
     def resolve(self, makefile, variables, setting):
-        return ' '.join(self.basenames(data.splitwords(self._arguments[0].resolve(makefile, variables, setting))))
+        return ' '.join(self.basenames(self._arguments[0].resolve(makefile, variables, setting).split()))
 
 class AddSuffixFunction(Function):
     name = 'addprefix'
@@ -327,7 +326,7 @@ class AddSuffixFunction(Function):
     def resolve(self, makefile, variables, setting):
         suffix = self._arguments[0].resolve(makefile, variables, setting)
 
-        return ' '.join((w + suffix for w in data.splitwords(self._arguments[1].resolve(makefile, variables, setting))))
+        return ' '.join((w + suffix for w in self._arguments[1].resolve(makefile, variables, setting).split()))
 
 class AddPrefixFunction(Function):
     name = 'addsuffix'
@@ -337,7 +336,7 @@ class AddPrefixFunction(Function):
     def resolve(self, makefile, variables, setting):
         prefix = self._arguments[0].resolve(makefile, variables, setting)
 
-        return ' '.join((prefix + w for w in data.splitwords(self._arguments[1].resolve(makefile, variables, setting))))
+        return ' '.join((prefix + w for w in self._arguments[1].resolve(makefile, variables, setting).split()))
 
 class JoinFunction(Function):
     name = 'join'
@@ -352,8 +351,8 @@ class JoinFunction(Function):
             yield i1 + i2
 
     def resolve(self, makefile, variables, setting):
-        list1 = data.splitwords(self._arguments[0].resolve(makefile, variables, setting))
-        list2 = data.splitwords(self._arguments[1].resolve(makefile, variables, setting))
+        list1 = self._arguments[0].resolve(makefile, variables, setting).split()
+        list2 = self._arguments[1].resolve(makefile, variables, setting).split()
 
         return ' '.join(self.iterjoin(list1, list2))
 
@@ -363,8 +362,7 @@ class WildcardFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        # TODO: will need work when we support -C without actually changing the OS cwd
-        patterns = data.splitwords(self._arguments[0].resolve(makefile, variables, setting))
+        patterns = self._arguments[0].resolve(makefile, variables, setting).split()
 
         r = []
         for p in patterns:
@@ -377,7 +375,7 @@ class RealpathFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        paths = data.splitwords(self._arguments[0].resolve(makefile, variables, setting))
+        paths = self._arguments[0].resolve(makefile, variables, setting).split()
         fspaths = [os.path.join(makefile.workdir, path) for path in paths]
         realpaths = [os.path.realpath(path).replace('\\','/') for path in fspaths]
         return ' '.join(realpaths)
@@ -389,7 +387,7 @@ class AbspathFunction(Function):
 
     def resolve(self, makefile, variables, setting):
         assert os.path.isabs(makefile.workdir)
-        paths = data.splitwords(self._arguments[0].resolve(makefile, variables, setting))
+        paths = self._arguments[0].resolve(makefile, variables, setting).split()
         fspaths = [os.path.join(makefile.workdir, path).replace('\\','/') for path in paths]
         return ' '.join(fspaths)
 
@@ -449,7 +447,7 @@ class ForEachFunction(Function):
     def resolve(self, makefile, variables, setting):
         vname = self._arguments[0].resolve(makefile, variables, setting)
 
-        words = data.splitwords(self._arguments[1].resolve(makefile, variables, setting))
+        words = self._arguments[1].resolve(makefile, variables, setting).split()
         e = self._arguments[2]
 
         results = []
