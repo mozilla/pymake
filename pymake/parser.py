@@ -527,6 +527,7 @@ def parsestream(fd, filename):
             if kword == 'define':
                 currule = False
                 vname, t, i = parsemakesyntax(d, offset, (), itermakefilechars)
+                vname.rstrip()
 
                 d = DynamicData(fdlines, filename)
                 d.readline()
