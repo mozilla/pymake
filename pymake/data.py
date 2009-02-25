@@ -3,15 +3,11 @@ A representation of makefile data structures.
 """
 
 import logging, re, os
-import parserdata
-import pymake.parser
-import pymake.functions
-import pymake.process
-import pymake.util
+import parserdata, parser, functions, process, util
 
 _log = logging.getLogger('pymake.data')
 
-class DataError(pymake.util.MakeError):
+class DataError(util.MakeError):
     pass
 
 class ResolutionError(DataError):
@@ -80,8 +76,13 @@ class Expansion(object):
         e.append(s)
         return e
 
+    def clone(self):
+        e = Expansion()
+        e._elements = list(self._elements)
+        return e
+
     def append(self, object):
-        if not isinstance(object, (str, pymake.functions.Function)):
+        if not isinstance(object, (str, functions.Function)):
             raise DataError("Expansions can contain only strings or functions, got %s" % (type(object),))
 
         if object == '':
@@ -167,7 +168,7 @@ class Variables(object):
     # SOURCE_IMPLICIT = 5
 
     def __init__(self, parent=None):
-        self._map = {}
+        self._map = {} # vname -> flavor, source, valuestr, valueexp, expansionerror
         self.parent = parent
 
     def readfromenvironment(self, env):
@@ -184,7 +185,7 @@ class Variables(object):
         it will be returned as an unexpanded string.
         """
         if name in self._map:
-            flavor, source, valuestr = self._map[name]
+            flavor, source, valuestr, valueexp, expansionerror = self._map[name]
             if flavor == self.FLAVOR_APPEND:
                 if self.parent:
                     pflavor, psource, pvalue = self.parent.get(name, expand)
@@ -202,11 +203,16 @@ class Variables(object):
                     if not expand:
                         return pflavor, psource, pvalue + ' ' + valuestr
 
-                    d = pymake.parser.Data.fromstring(valuestr, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
-                    appende, t, o = pymake.parser.parsemakesyntax(d, 0, (), pymake.parser.iterdata)
+                    if expansionerror is not None:
+                        raise expansionerror
 
+                    
+                    d = parser.Data.fromstring(valuestr, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
+                    appende, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
+
+                    pvalue = pvalue.clone()
                     pvalue.append(' ')
-                    pvalue.concat(appende)
+                    pvalue.concat(valueexp)
 
                     return pflavor, psource, pvalue
                     
@@ -214,8 +220,10 @@ class Variables(object):
                 return flavor, source, valuestr
 
             if flavor == self.FLAVOR_RECURSIVE:
-                d = pymake.parser.Data.fromstring(valuestr, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
-                val, t, o = pymake.parser.parsemakesyntax(d, 0, (), pymake.parser.iterdata)
+                if expansionerror is not None:
+                    raise expansionerror
+
+                val = valueexp
             else:
                 val = Expansion.fromstring(valuestr)
 
@@ -237,28 +245,61 @@ class Variables(object):
             _log.info("not setting variable '%s', set by higher-priority source to value '%s'" % (name, prevvalue))
             return
 
-        self._map[name] = (flavor, source, value)
+        if flavor == self.FLAVOR_SIMPLE:
+            valueexp = None
+            expansionerror = None
+        else:
+            try:
+                d = parser.Data.fromstring(value, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
+                valueexp, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
+                expansionerror = None
+            except parser.SyntaxError, e:
+                valueexp = None
+                expansionerror = e
+
+        self._map[name] = (flavor, source, value, valueexp, expansionerror)
 
     def append(self, name, source, value, variables, makefile):
         assert source in (self.SOURCE_OVERRIDE, self.SOURCE_MAKEFILE, self.SOURCE_AUTOMATIC)
         assert isinstance(value, str)
+
+        def expand():
+            try:
+                d = parser.Data.fromstring(value, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
+                valueexp, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
+                return valueexp, None
+            except parser.SyntaxError, e:
+                return None, e
         
-        if name in self._map:
-            prevflavor, prevsource, prevvalue = self._map[name]
-            if source > prevsource:
-                # TODO: log a warning?
-                return
+        if name not in self._map:
+            exp, err = expand()
+            self._map[name] = self.FLAVOR_APPEND, source, value, exp, err
+            return
 
-            if prevflavor == self.FLAVOR_SIMPLE:
-                d = pymake.parser.Data.fromstring(value, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
-                e, t, o = pymake.parser.parsemakesyntax(d, 0, (), pymake.parser.iterdata)
-                val = e.resolve(makefile, variables, [name])
-            else:
-                val = value
+        prevflavor, prevsource, prevvalue, valueexp, err = self._map[name]
+        if source > prevsource:
+            # TODO: log a warning?
+            return
 
-            self._map[name] = prevflavor, prevsource, prevvalue + ' ' + val
-        else:
-            self._map[name] = self.FLAVOR_APPEND, source, value
+        if prevflavor == self.FLAVOR_SIMPLE:
+            exp, err = expand()
+            if err is not None:
+                raise err
+
+            val = exp.resolve(makefile, variables, [name])
+            self._map[name] = prevflavor, prevsource, prevvalue + ' ' + val, None, None
+            return
+
+        newvalue = prevvalue + ' ' + value
+        try:
+            d = parser.Data.fromstring(newvalue, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
+            valueexp, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
+            err = None
+        except parser.SyntaxError, e:
+            valueexp = None
+            err = e
+
+        self._map[name] = prevflavor, prevsource, newvalue, valueexp, err
 
     def merge(self, other):
         assert isinstance(other, Variables)
@@ -266,7 +307,7 @@ class Variables(object):
             self.set(k, flavor, source, value)
 
     def __iter__(self):
-        for k, (flavor, source, value) in self._map.iteritems():
+        for k, (flavor, source, value, valueexp, expansionerr) in self._map.iteritems():
             yield k, flavor, source, value
 
     def __contains__(self, item):
@@ -702,7 +743,7 @@ class Target(object):
         indent = getindent(targetstack)
 
         # this object exists solely as a container to subvert python's read-only closures
-        o = pymake.util.makeobject(('unmadedeps', 'didanything', 'error'))
+        o = util.makeobject(('unmadedeps', 'didanything', 'error'))
 
         def iterdeps():
             for r, deps in _resolvedrules:
@@ -822,7 +863,7 @@ class Target(object):
             depiterator = iterdeps()
             startdep()
 
-        except pymake.util.MakeError, e:
+        except util.MakeError, e:
             self._notifyerror(makefile, e)
 
 def dirpart(p):
@@ -906,7 +947,7 @@ class CommandWrapper(object):
 
     def __call__(self, cb):
         self.usercb = cb
-        pymake.process.call(self.cline, loc=self.loc, cb=self._cb, context=self.context, **self.kwargs)
+        process.call(self.cline, loc=self.loc, cb=self._cb, context=self.context, **self.kwargs)
 
 def getcommandsforrule(rule, target, makefile, prerequisites, stem):
     v = Variables(parent=target.variables)
@@ -1158,7 +1199,7 @@ class Makefile(object):
 
         fspath = os.path.join(self.workdir, path)
         if os.path.exists(fspath):
-            stmts = pymake.parser.parsefile(fspath)
+            stmts = parser.parsefile(fspath)
             self.variables.append('MAKEFILE_LIST', Variables.SOURCE_AUTOMATIC, path, None, self)
             stmts.execute(self)
             self.gettarget(path).explicit = True
@@ -1193,8 +1234,8 @@ class Makefile(object):
     def remakemakefiles(self, cb):
         reparse = False
 
-        o = pymake.util.makeobject(('remadecount',),
-                                   remadecount = 0)
+        o = util.makeobject(('remadecount',),
+                            remadecount = 0)
 
         def remakecb(error, didanything):
             if error is not None:
