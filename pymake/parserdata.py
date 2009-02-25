@@ -6,16 +6,6 @@ from pymake.globrelative import hasglob, glob
 _log = logging.getLogger('pymake.data')
 _tabwidth = 4
 
-def _charlocation(start, char):
-    """
-    Return the column position after processing a perhaps-tab character.
-    This function is meant to be used with reduce().
-    """
-    if char != '\t':
-        return start + 1
-
-    return start + _tabwidth - start % _tabwidth
-
 class Location(object):
     """
     A location within a makefile.
@@ -36,10 +26,22 @@ class Location(object):
         Returns a new location on the same line offset by
         the specified string.
         """
-        newcol = reduce(_charlocation, data, self.column)
-        if newcol == self.column:
+        column = self.column
+        i = 0
+        while True:
+            j = data.find('\t', i)
+            if j == -1:
+                column += len(data) - i
+                break
+
+            column += j - i
+            column += _tabwidth
+            column -= column % _tabwidth
+            i = j + 1
+
+        if column == self.column:
             return self
-        return Location(self.path, self.line, newcol)
+        return Location(self.path, self.line, column)
 
     def __str__(self):
         return "%s:%s:%s" % (self.path, self.line, self.column)
