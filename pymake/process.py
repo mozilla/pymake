@@ -42,7 +42,7 @@ def call(cline, env, cwd, loc, cb, context, echo):
         argv, badchar = clinetoargv(cline)
         if argv is None:
             shellreason = "command contains shell-special character '%s'" % (badchar,)
-        elif argv[0] in shellwords:
+        elif len(argv) and argv[0] in shellwords:
             shellreason = "command starts with shell primitive '%s'" % (argv[0],)
 
     if shellreason is not None:
