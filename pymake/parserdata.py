@@ -101,7 +101,6 @@ class Override(Statement):
 
 class DummyRule(object):
     def addcommand(self, r):
-        _log.debug("Discarding rule at %s" % (r.loc,))
         pass
 
 class Rule(Statement):
@@ -290,8 +289,6 @@ class IfdefCondition(Condition):
         vname = self.exp.resolve(makefile, makefile.variables)
         flavor, source, value = makefile.variables.get(vname, expand=False)
 
-        _log.debug("ifdef at %s: vname: %r value is %r" % (self.exp.loc, vname, value))
-
         if value is None:
             return not self.expected
 
@@ -334,7 +331,7 @@ class ConditionBlock(Statement):
         i = 0
         for c, statements in self._groups:
             if c.evaluate(makefile):
-                _log.debug("Condition at %s met by clause #%i" % (self.loc, i))
+                _log.debug("Condition at %s met by clause #%i", self.loc, i)
                 statements.execute(makefile, context)
                 return
 

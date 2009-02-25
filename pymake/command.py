@@ -61,7 +61,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE."""
 
-log = logging.getLogger('pymake.execution')
+_log = logging.getLogger('pymake.execution')
 
 def main(args, env, cwd, context, cb):
     try:
@@ -121,15 +121,15 @@ def main(args, env, cwd, context, cb):
         logging.basicConfig(level=loglevel, **logkwargs)
 
         if context is not None and context.jcount > 1 and options.jobcount == 1:
-            log.debug("-j1 specified, creating new serial execution context")
+            _log.debug("-j1 specified, creating new serial execution context")
             context = process.getcontext(options.jobcount)
             subcontext = True
         elif context is None:
-            log.debug("Creating new execution context, jobcount %s" % options.jobcount)
+            _log.debug("Creating new execution context, jobcount %s", options.jobcount)
             context = process.getcontext(options.jobcount)
             subcontext = True
         else:
-            log.debug("Using parent execution context")
+            _log.debug("Using parent execution context")
             subcontext = False
 
         if options.printdir:
@@ -171,7 +171,7 @@ def main(args, env, cwd, context, cb):
         def remakecb(remade, restarts, makefile):
             if remade:
                 if restarts > 0:
-                    log.info("make.py[%i]: Restarting makefile parsing" % (makelevel,))
+                    _log.info("make.py[%i]: Restarting makefile parsing", makelevel)
                 makefile = data.Makefile(restarts=restarts, make='%s %s' % (sys.executable.replace('\\', '/'), makepypath.replace('\\', '/')),
                                          makeflags=makeflags, makelevel=makelevel, workdir=workdir,
                                          context=context, env=env)
@@ -196,7 +196,7 @@ def main(args, env, cwd, context, cb):
                     context.defer(cb, 2)
                     return
 
-                log.info("Making default target %s" % (makefile.defaulttarget,))
+                _log.info("Making default target %s", makefile.defaulttarget)
                 realtargets = [makefile.defaulttarget]
                 tstack = ['<default-target>']
             else:

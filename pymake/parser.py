@@ -24,7 +24,7 @@ do the dirty work of "executing" the parsed data into a Makefile data structure.
 import logging, re, os
 import data, functions, util, parserdata
 
-log = logging.getLogger('pymake.parser')
+_log = logging.getLogger('pymake.parser')
 
 class SyntaxError(util.MakeError):
     pass
@@ -447,10 +447,10 @@ def parsefile(pathname):
         oldmtime, stmts = _parsecache[pathname]
 
         if mtime == oldmtime:
-            log.debug("Using '%s' from the parser cache.", pathname)
+            _log.debug("Using '%s' from the parser cache.", pathname)
             return stmts
 
-        log.debug("Not using '%s' from the parser cache, mtimes don't match: was %s, now %s" % (pathname, oldmtime, mtime))
+        _log.debug("Not using '%s' from the parser cache, mtimes don't match: was %s, now %s", pathname, oldmtime, mtime)
 
     stmts = parsestream(open(pathname, "rU"), pathname)
     _parsecache[pathname] = mtime, stmts
@@ -795,7 +795,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 # A substitution of the form $(VARNAME:.ee) is probably a mistake, but make
                 # parses it. Issue a warning. Combine the varname and substfrom expansions to
                 # make the compatible varname. See tests/var-substitutions.mk SIMPLE3SUBSTNAME
-                log.warning("%s: Variable reference looks like substitution without =" % (stacktop.loc, ))
+                _log.warning("%s: Variable reference looks like substitution without =", stacktop.loc)
                 stacktop.varname.append(':')
                 stacktop.varname.concat(stacktop.expansion)
                 stack.pop()

@@ -10,16 +10,18 @@ if sys.platform=='win32':
 
 _log = logging.getLogger('pymake.process')
 
-blacklist = re.compile(r'[=\\$><;*?[{~`|&]')
+_blacklist = re.compile(r'[=\\$><;*?[{~`|&]')
 def clinetoargv(cline):
     """
     If this command line can safely skip the shell, return an argv array.
+    @returns argv, badchar
     """
 
-    if blacklist.search(cline) is not None:
-        return None
+    m = _blacklist.search(cline)
+    if m is not None:
+        return None, m.group(0)
 
-    return shlex.split(cline, comments=True)
+    return shlex.split(cline, comments=True), None
 
 shellwords = (':', '.', 'break', 'cd', 'continue', 'exec', 'exit', 'export',
               'getopts', 'hash', 'pwd', 'readonly', 'return', 'shift', 
@@ -30,11 +32,21 @@ shellwords = (':', '.', 'break', 'cd', 'continue', 'exec', 'exit', 'export',
               'ulimit', 'unalias', 'set')
 
 def call(cline, env, cwd, loc, cb, context, echo):
-    argv = clinetoargv(cline)
     #TODO: call this once up-front somewhere and save the result?
     shell, msys = util.checkmsyscompat()
-    if argv is None or (len(argv) and argv[0] in shellwords) or (msys and cline.startswith('/')):
-        _log.debug("%s: Running command through shell because of shell metacharacters" % (loc,))
+
+    shellreason = None
+    if msys and cline.startswith('/'):
+        shellreason = "command starts with /"
+    else:
+        argv, badchar = clinetoargv(cline)
+        if argv is None:
+            shellreason = "command contains shell-special character '%s'" % (badchar,)
+        elif argv[0] in shellwords:
+            shellreason = "command starts with shell primitive '%s'" % (argv[0],)
+
+    if shellreason is not None:
+        _log.debug("%s: using shell: %s: '%s'", loc, shellreason, cline)
         if msys:
             cline = [shell, "-c", cline]
         context.call(cline, shell=not msys, env=env, cwd=cwd, cb=cb, echo=echo)
@@ -58,7 +70,6 @@ def call(cline, env, cwd, loc, cb, context, echo):
     else:
         executable = None
 
-    _log.debug("%s: skipping shell, no metacharacters found" % (loc,))
     context.call(argv, executable=executable, shell=False, env=env, cwd=cwd, cb=cb, echo=echo)
 
 def statustoresult(status):
@@ -98,7 +109,6 @@ class ParallelContext(object):
     def run(self):
         while len(self.pending) and len(self.running) < self.jcount:
             cb, args, kwargs = self.pending.pop(0)
-            _log.debug("Running callback %r with args %r kwargs %r" % (cb, args, kwargs))
             cb(*args, **kwargs)
 
     def defer(self, cb, *args, **kwargs):
@@ -110,8 +120,8 @@ class ParallelContext(object):
             try:
                 p = subprocess.Popen(argv, executable=executable, shell=shell, env=env, cwd=cwd)
             except OSError, e:
-                _log.info("Process with argv %r raised exception: %s" % (argv, e))
-                cb(2)
+                print >>sys.stderr, e
+                cb(-127)
                 return
 
             self.running.append((p, cb))
@@ -146,8 +156,6 @@ class ParallelContext(object):
         """
         Spin the 'event loop', and never return.
         """
-
-        _log.debug("Spinning the event loop")
 
         while True:
             clist = list(ParallelContext._allcontexts)

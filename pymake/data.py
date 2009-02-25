@@ -9,7 +9,7 @@ import pymake.functions
 import pymake.process
 import pymake.util
 
-log = logging.getLogger('pymake.data')
+_log = logging.getLogger('pymake.data')
 
 class DataError(pymake.util.MakeError):
     pass
@@ -234,7 +234,7 @@ class Variables(object):
         prevflavor, prevsource, prevvalue = self.get(name)
         if prevsource is not None and source > prevsource:
             # TODO: give a location for this warning
-            log.warning("not setting variable '%s', set by higher-priority source to value '%s'" % (name, prevvalue))
+            _log.info("not setting variable '%s', set by higher-priority source to value '%s'" % (name, prevvalue))
             return
 
         self._map[name] = (flavor, source, value)
@@ -450,7 +450,7 @@ class Target(object):
 
         indent = getindent(targetstack)
 
-        log.info(indent + "Trying to find implicit rule to make '%s'" % (self.target,))
+        _log.info("%sSearching for implicit rule to make '%s'", indent, self.target)
 
         dir, s, file = self.target.rpartition('/')
         dir = dir + s
@@ -458,15 +458,13 @@ class Target(object):
         candidates = [] # list of PatternRuleInstance
 
         hasmatch = any((r.hasspecificmatch(file) for r in makefile.implicitrules))
-        log.debug("Does any implicit rule match '%s'? %s" % (self.target, hasmatch))
 
         for r in makefile.implicitrules:
             if r in rulestack:
-                log.info(indent + " %s: Avoiding implicit rule recursion" % (r.loc,))
+                _log.info("%s %s: Avoiding implicit rule recursion", indent, r.loc)
                 continue
 
             if not len(r.commands):
-                log.info(indent + " %s: Has no commands" % (r.loc,))
                 continue
 
             for ri in r.matchesfor(dir, file, hasmatch):
@@ -485,12 +483,12 @@ class Target(object):
 
             if depfailed is not None:
                 if r.doublecolon:
-                    log.info(indent + " Terminal rule at %s doesn't match: prerequisite '%s' not mentioned and doesn't exist." % (r.loc, depfailed))
+                    _log.info("%s Terminal rule at %s doesn't match: prerequisite '%s' not mentioned and doesn't exist.", indent, r.loc, depfailed)
                 else:
                     newcandidates.append(r)
                 continue
 
-            log.info(indent + "Found implicit rule at %s for target '%s'" % (r.loc, self.target))
+            _log.info("%sFound implicit rule at %s for target '%s'", indent, r.loc, self.target)
             self.rules.append(r)
             return
 
@@ -509,14 +507,14 @@ class Target(object):
                     break
 
             if depfailed is not None:
-                log.info(indent + " Rule at %s doesn't match: prerequisite '%s' could not be made." % (r.loc, depfailed))
+                _log.info("%s Rule at %s doesn't match: prerequisite '%s' could not be made.", indent, r.loc, depfailed)
                 continue
 
-            log.info(indent + "Found implicit rule at %s for target '%s'" % (r.loc, self.target))
+            _log.info("%sFound implicit rule at %s for target '%s'", indent, r.loc, self.target)
             self.rules.append(r)
             return
 
-        log.info(indent + "Couldn't find implicit rule to remake '%s'" % (self.target,))
+        _log.info("%sCouldn't find implicit rule to remake '%s'", indent, self.target)
 
     def ruleswithcommands(self):
         "The number of rules with commands"
@@ -548,7 +546,7 @@ class Target(object):
         
         indent = getindent(targetstack)
 
-        log.info(indent + "Considering target '%s'" % (self.target,))
+        _log.info("%sConsidering target '%s'", indent, self.target)
 
         self.resolvevpath(makefile)
 
@@ -575,7 +573,6 @@ class Target(object):
                                                                                     targetstack))
 
         for r in self.rules:
-            log.info(indent + "Will remake target '%s' using rule at %s" % (self.target, r.loc))
             newrulestack = rulestack + [r]
             for d in r.prerequisites:
                 dt = makefile.gettarget(d)
@@ -651,8 +648,6 @@ class Target(object):
         self.vpathtarget = self.target
 
     def _notifyerror(self, makefile, e):
-        log.debug("Making target '%s' failed with error %s" % (self.target, e))
-
         if self._state == MAKESTATE_FINISHED:
             # multiple callbacks failed. The first one already finished us, so we ignore this one
             return
@@ -664,8 +659,6 @@ class Target(object):
         del self._callbacks 
 
     def _notifysuccess(self, makefile, didanything):
-        log.debug("Making target '%s' succeeded" % (self.target,))
-
         self._state = MAKESTATE_FINISHED
         self._makeerror = None
         self._didanything = didanything
@@ -692,20 +685,16 @@ class Target(object):
         """
         if self._state == MAKESTATE_FINISHED:
             if self._makeerror is not None:
-                log.debug("Already made target '%s', got error %s" % (self.target, self._makeerror))
                 cb(error=self._makeerror, didanything=False) #XXX?
             else:
-                log.debug("Already made target '%s'" % (self.target,))
                 cb(error=None, didanything=self._didanything)
             return
             
         if self._state == MAKESTATE_WORKING:
-            log.debug("Already making target '%s', adding callback. targetstack %r" % (self.target, targetstack))
             self._callbacks.append(cb)
             return
 
         assert self._state == MAKESTATE_NONE
-        log.debug("Starting to make target '%s', targetstack %r" % (self.target, targetstack))
 
         self._state = MAKESTATE_WORKING
         self._callbacks = [cb]
@@ -766,18 +755,18 @@ class Target(object):
                     remake = False
                     if len(deps) == 0:
                         if avoidremakeloop:
-                            log.info(indent + "Not remaking %s using rule at %s because it would introduce an infinite loop." % (self.target, r.loc))
+                            _log.info("%sNot remaking %s using rule at %s because it would introduce an infinite loop.", indent, self.target, r.loc)
                         else:
-                            log.info(indent + "Remaking %s using rule at %s because there are no prerequisites listed for a double-colon rule." % (self.target, r.loc))
+                            _log.info("%sRemaking %s using rule at %s because there are no prerequisites listed for a double-colon rule.", indent, self.target, r.loc)
                             remake = True
                     else:
                         if self.mtime is None:
-                            log.info(indent + "Remaking %s using rule at %s because it doesn't exist or is a forced target" % (self.target, r.loc))
+                            _log.info("%sRemaking %s using rule at %s because it doesn't exist or is a forced target", indent, self.target, r.loc)
                             remake = True
                         else:
                             for d in deps:
                                 if mtimeislater(d.mtime, self.mtime):
-                                    log.info(indent + "Remaking %s using rule at %s because %s is newer." % (self.target, r.loc, d.target))
+                                    _log.info("%sRemaking %s using rule at %s because %s is newer.", indent, self.target, r.loc, d.target)
                                     remake = True
                                     break
                     if remake:
@@ -787,7 +776,7 @@ class Target(object):
                 commandrule = None
                 remake = False
                 if self.mtime is None:
-                    log.info(indent + "Remaking %s because it doesn't exist or is a forced target" % (self.target,))
+                    _log.info("%sRemaking %s because it doesn't exist or is a forced target", indent, self.target)
                     remake = True
 
                 for r, deps in _resolvedrules:
@@ -798,7 +787,7 @@ class Target(object):
                     if not remake:
                         for d in deps:
                             if mtimeislater(d.mtime, self.mtime):
-                                log.info(indent + "Remaking %s because %s is newer" % (self.target, d.target))
+                                _log.info("%sRemaking %s because %s is newer", indent, self.target, d.target)
                                 remake = True
 
                 if remake:
@@ -823,7 +812,6 @@ class Target(object):
             assert self.vpathtarget is not None, "Target was never resolved!"
 
             _resolvedrules = [(r, [makefile.gettarget(p) for p in r.prerequisites]) for r in self.rules]
-            log.debug("resolvedrules for %r: %r" % (self.target, _resolvedrules))
 
             targetstack = targetstack + [self.target]
 
@@ -1181,21 +1169,17 @@ class Makefile(object):
         """
         Add a directory to the vpath search for the given pattern.
         """
-        log.info("Adding vpath directive: pattern '%s' directories %r" % (pattern, dirs))
         self._patternvpaths.append((pattern, dirs))
 
     def clearvpath(self, pattern):
         """
         Clear vpaths for the given pattern.
         """
-        log.info("Clearing vpath directives for pattern '%s'" % (pattern,))
-
         self._patternvpaths = [(p, dirs)
                                for p, dirs in self._patternvpaths
                                if not p.match(pattern)]
 
     def clearallvpaths(self):
-        log.info("Clearing all vpath directives")
         self._patternvpaths = []
 
     def getvpath(self, target):
