@@ -32,12 +32,12 @@ shellwords = (':', '.', 'break', 'cd', 'continue', 'exec', 'exit', 'export',
 def call(cline, env, cwd, loc, cb, context, echo):
     argv = clinetoargv(cline)
     #TODO: call this once up-front somewhere and save the result?
-    shell, prependshell = util.checkmsyscompat()
-    if argv is None or (len(argv) and argv[0] in shellwords) or cline.startswith('/'):
+    shell, msys = util.checkmsyscompat()
+    if argv is None or (len(argv) and argv[0] in shellwords) or (msys and cline.startswith('/')):
         _log.debug("%s: Running command through shell because of shell metacharacters" % (loc,))
-        if prependshell:
+        if msys:
             cline = [shell, "-c", cline]
-        context.call(cline, shell=not prependshell, env=env, cwd=cwd, cb=cb, echo=echo)
+        context.call(cline, shell=not msys, env=env, cwd=cwd, cb=cb, echo=echo)
         return
 
     if not len(argv):

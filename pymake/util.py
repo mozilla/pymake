@@ -32,9 +32,9 @@ def checkmsyscompat():
     else:
         raise DataError("Can't find a suitable shell!")
 
-    prependshell = False
+    msys = False
     if 'MSYSTEM' in os.environ and os.environ['MSYSTEM'] == 'MINGW32':
-        prependshell = True
+        msys = True
         if not shell.lower().endswith(".exe"):
             shell += ".exe"
-    return (shell, prependshell)
+    return (shell, msys)

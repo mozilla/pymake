@@ -570,13 +570,13 @@ class ShellFunction(Function):
 
     def resolve(self, makefile, variables, setting):
         #TODO: call this once up-front somewhere and save the result?
-        shell, prependshell = util.checkmsyscompat()
+        shell, msys = util.checkmsyscompat()
         cline = self._arguments[0].resolve(makefile, variables, setting)
 
         log.debug("%s: running shell command '%s'" % (self.loc, cline))
-        if prependshell:
+        if msys:
             cline = [shell, "-c", cline]
-        p = subprocess.Popen(cline, shell=not prependshell, stdout=subprocess.PIPE, cwd=makefile.workdir)
+        p = subprocess.Popen(cline, shell=not msys, stdout=subprocess.PIPE, cwd=makefile.workdir)
         stdout, stderr = p.communicate()
 
         stdout = stdout.replace('\r\n', '\n')
