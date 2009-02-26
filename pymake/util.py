@@ -111,7 +111,7 @@ else:
         return str[:offset], token, str[offset + len(token):]
 
 try:
-    from __builtins__ import any
+    from __builtin__ import any
 except ImportError:
     def any(it):
         for i in it:
