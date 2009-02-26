@@ -115,7 +115,7 @@ class Rule(Statement):
         self.doublecolon = doublecolon
 
     def execute(self, makefile, context):
-        atargets = data.stripdotslashes(self.targetexp.resolve(makefile, makefile.variables).split())
+        atargets = data.stripdotslashes(self.targetexp.resolvestr(makefile, makefile.variables).split())
         targets = [data.Pattern(p) for p in _expandwildcards(makefile, atargets)]
 
         if not len(targets):
@@ -127,7 +127,7 @@ class Rule(Statement):
             raise data.DataError("Mixed implicit and normal rule", self.targetexp.loc)
         ispattern, = ispatterns
 
-        deps = [p for p in _expandwildcards(makefile, data.stripdotslashes(self.depexp.resolve(makefile, makefile.variables).split()))]
+        deps = [p for p in _expandwildcards(makefile, data.stripdotslashes(self.depexp.resolvestr(makefile, makefile.variables).split()))]
         if ispattern:
             rule = data.PatternRule(targets, map(data.Pattern, deps), self.doublecolon, loc=self.targetexp.loc)
             makefile.appendimplicitrule(rule)
@@ -154,18 +154,18 @@ class StaticPatternRule(Statement):
         self.doublecolon = doublecolon
 
     def execute(self, makefile, context):
-        targets = list(_expandwildcards(makefile, data.stripdotslashes(self.targetexp.resolve(makefile, makefile.variables).split())))
+        targets = list(_expandwildcards(makefile, data.stripdotslashes(self.targetexp.resolvestr(makefile, makefile.variables).split())))
 
         if not len(targets):
             context.currule = DummyRule()
             return
 
-        patterns = list(data.stripdotslashes(self.patternexp.resolve(makefile, makefile.variables).split()))
+        patterns = list(data.stripdotslashes(self.patternexp.resolvestr(makefile, makefile.variables).split()))
         if len(patterns) != 1:
             raise data.DataError("Static pattern rules must have a single pattern", self.patternexp.loc)
         pattern = data.Pattern(patterns[0])
 
-        deps = [data.Pattern(p) for p in _expandwildcards(makefile, data.stripdotslashes(self.depexp.resolve(makefile, makefile.variables).split()))]
+        deps = [data.Pattern(p) for p in _expandwildcards(makefile, data.stripdotslashes(self.depexp.resolvestr(makefile, makefile.variables).split()))]
 
         rule = data.PatternRule([pattern], deps, self.doublecolon, loc=self.targetexp.loc)
 
@@ -212,7 +212,7 @@ class SetVariable(Statement):
         self.source = source
 
     def execute(self, makefile, context):
-        vname = self.vnameexp.resolve(makefile, makefile.variables)
+        vname = self.vnameexp.resolvestr(makefile, makefile.variables)
         if len(vname) == 0:
             raise data.DataError("Empty variable name", self.vnameexp.loc)
 
@@ -221,7 +221,7 @@ class SetVariable(Statement):
         else:
             setvariables = []
 
-            targets = [data.Pattern(t) for t in data.stripdotslashes(self.targetexp.resolve(makefile, makefile.variables).split())]
+            targets = [data.Pattern(t) for t in data.stripdotslashes(self.targetexp.resolvestr(makefile, makefile.variables).split())]
             for t in targets:
                 if t.ispattern():
                     setvariables.append(makefile.getpatternvariables(t))
@@ -248,7 +248,7 @@ class SetVariable(Statement):
                 flavor = data.Variables.FLAVOR_SIMPLE
                 d = parser.Data.fromstring(self.value, self.valueloc)
                 e, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
-                value = e.resolve(makefile, makefile.variables)
+                value = e.resolvestr(makefile, makefile.variables)
 
             v.set(vname, flavor, self.source, value)
 
@@ -273,8 +273,8 @@ class EqCondition(Condition):
         self.exp2 = exp2
 
     def evaluate(self, makefile):
-        r1 = self.exp1.resolve(makefile, makefile.variables)
-        r2 = self.exp2.resolve(makefile, makefile.variables)
+        r1 = self.exp1.resolvestr(makefile, makefile.variables)
+        r2 = self.exp2.resolvestr(makefile, makefile.variables)
         return (r1 == r2) == self.expected
 
     def __str__(self):
@@ -288,7 +288,7 @@ class IfdefCondition(Condition):
         self.exp = exp
 
     def evaluate(self, makefile):
-        vname = self.exp.resolve(makefile, makefile.variables)
+        vname = self.exp.resolvestr(makefile, makefile.variables)
         flavor, source, value = makefile.variables.get(vname, expand=False)
 
         if value is None:
@@ -357,7 +357,7 @@ class Include(Statement):
         self.required = required
 
     def execute(self, makefile, context):
-        files = self.exp.resolve(makefile, makefile.variables).split()
+        files = self.exp.resolvestr(makefile, makefile.variables).split()
         for f in files:
             makefile.include(f, self.required, loc=self.exp.loc)
 
@@ -370,7 +370,7 @@ class VPathDirective(Statement):
         self.exp = exp
 
     def execute(self, makefile, context):
-        words = list(data.stripdotslashes(self.exp.resolve(makefile, makefile.variables).split()))
+        words = list(data.stripdotslashes(self.exp.resolvestr(makefile, makefile.variables).split()))
         if len(words) == 0:
             makefile.clearallvpaths()
         else:
@@ -398,9 +398,9 @@ class ExportDirective(Statement):
 
     def execute(self, makefile, context):
         if self.single:
-            vlist = [self.exp.resolve(makefile, makefile.variables)]
+            vlist = [self.exp.resolvestr(makefile, makefile.variables)]
         else:
-            vlist = self.exp.resolve(makefile, makefile.variables).split()
+            vlist = self.exp.resolvestr(makefile, makefile.variables).split()
             if not len(vlist):
                 raise data.DataError("Exporting all variables is not supported", self.exp.loc)
 
@@ -416,7 +416,7 @@ class EmptyDirective(Statement):
         self.exp = exp
 
     def execute(self, makefile, context):
-        v = self.exp.resolve(makefile, makefile.variables)
+        v = self.exp.resolvestr(makefile, makefile.variables)
         if v.strip() != '':
             raise data.DataError("Line expands to non-empty value", self.exp.loc)
 

@@ -131,8 +131,15 @@ class Expansion(object):
         assert isinstance(variables, Variables)
         assert isinstance(setting, list)
 
-        return ''.join( (_if_else(isinstance(i, str), lambda: i, lambda: i.resolve(makefile, variables, setting))
-                         for i in self._elements) )
+        for i in self._elements:
+            if isinstance(i, str):
+                yield i
+            else:
+                for j in i.resolve(makefile, variables, setting):
+                    yield j
+                    
+    def resolvestr(self, makefile, variables, setting=[]):
+        return ''.join(self.resolve(makefile, variables, setting))
 
     def __len__(self):
         return len(self._elements)
@@ -286,7 +293,7 @@ class Variables(object):
             if err is not None:
                 raise err
 
-            val = exp.resolve(makefile, variables, [name])
+            val = exp.resolvestr(makefile, variables, [name])
             self._map[name] = prevflavor, prevsource, prevvalue + ' ' + val, None, None
             return
 
@@ -638,7 +645,7 @@ class Target(object):
             stem = self.target[2:]
             f, s, e = makefile.variables.get('.LIBPATTERNS')
             if e is not None:
-                libpatterns = [Pattern(stripdotslash(s)) for s in e.resolve(makefile, makefile.variables).split()]
+                libpatterns = [Pattern(stripdotslash(s)) for s in e.resolvestr(makefile, makefile.variables).split()]
                 if len(libpatterns):
                     searchdirs = ['']
                     searchdirs.extend(makefile.getvpath(self.target))
@@ -958,7 +965,7 @@ def getcommandsforrule(rule, target, makefile, prerequisites, stem):
     env = makefile.getsubenvironment(v)
 
     for c in rule.commands:
-        cstring = c.resolve(makefile, v)
+        cstring = c.resolvestr(makefile, v)
         for cline in splitcommand(cstring):
             cline, isHidden, isRecursive, ignoreErrors = findmodifiers(cline)
             if isHidden:
@@ -1175,14 +1182,14 @@ class Makefile(object):
         self.parsingfinished = True
 
         flavor, source, value = self.variables.get('GPATH')
-        if value is not None and value.resolve(self, self.variables, ['GPATH']).strip() != '':
+        if value is not None and value.resolvestr(self, self.variables, ['GPATH']).strip() != '':
             raise DataError('GPATH was set: pymake does not support GPATH semantics')
 
         flavor, source, value = self.variables.get('VPATH')
         if value is None:
             self._vpath = []
         else:
-            self._vpath = filter(lambda e: e != '', re.split('[:\s]+', value.resolve(self, self.variables, ['VPATH'])))
+            self._vpath = filter(lambda e: e != '', re.split('[:\s]+', value.resolvestr(self, self.variables, ['VPATH'])))
 
         targets = list(self._targets.itervalues())
         for t in targets:
@@ -1270,14 +1277,14 @@ class Makefile(object):
             if val is None:
                 strval = ''
             else:
-                strval = val.resolve(self, variables, [vname])
+                strval = val.resolvestr(self, variables, [vname])
             env[vname] = strval
 
         makeflags = ''
 
         flavor, source, val = variables.get('MAKEFLAGS')
         if val is not None:
-            flagsval = val.resolve(self, variables, ['MAKEFLAGS'])
+            flagsval = val.resolvestr(self, variables, ['MAKEFLAGS'])
             if flagsval != '':
                 makeflags = flagsval
 

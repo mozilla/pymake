@@ -21,7 +21,7 @@ class Function(object):
 
     def resolve(self, makefile, variables, setting)
         Calls the function
-        @returns string
+        @yields strings
     """
     def __init__(self, loc):
         self._arguments = []
@@ -56,16 +56,17 @@ class VariableRef(Function):
         assert False, "Shouldn't get here"
 
     def resolve(self, makefile, variables, setting):
-        vname = self.vname.resolve(makefile, variables, setting)
+        vname = self.vname.resolvestr(makefile, variables, setting)
         if vname in setting:
             raise data.DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
 
         flavor, source, value = variables.get(vname)
         if value is None:
             log.debug("%s: variable '%s' was not set" % (self.loc, vname))
-            return ''
+            return
 
-        return value.resolve(makefile, variables, setting + [vname])
+        for j in value.resolve(makefile, variables, setting + [vname]):
+            yield j
 
 class SubstitutionRef(Function):
     """$(VARNAME:.c=.o) and $(VARNAME:%.c=%.o)"""
@@ -79,27 +80,27 @@ class SubstitutionRef(Function):
         assert False, "Shouldn't get here"
 
     def resolve(self, makefile, variables, setting):
-        vname = self.vname.resolve(makefile, variables, setting)
+        vname = self.vname.resolvestr(makefile, variables, setting)
         if vname in setting:
             raise data.DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
 
-        substfrom = self.substfrom.resolve(makefile, variables, setting)
-        substto = self.substto.resolve(makefile, variables, setting)
+        substfrom = self.substfrom.resolvestr(makefile, variables, setting)
+        substto = self.substto.resolvestr(makefile, variables, setting)
 
         flavor, source, value = variables.get(vname)
         if value is None:
             log.debug("%s: variable '%s' was not set" % (self.loc, vname))
-            return ''
+            return
 
-        evalue = value.resolve(makefile, variables, setting + [vname])
+        evalue = value.resolvestr(makefile, variables, setting + [vname])
 
         f = data.Pattern(substfrom)
         if not f.ispattern():
             f = data.Pattern('%' + substfrom)
             substto = '%' + substto
 
-        return " ".join((f.subst(substto, word, False)
-                         for word in evalue.split()))
+        yield " ".join((f.subst(substto, word, False)
+                        for word in evalue.split()))
 
 class SubstFunction(Function):
     name = 'subst'
@@ -107,10 +108,10 @@ class SubstFunction(Function):
     maxargs = 3
 
     def resolve(self, makefile, variables, setting):
-        s = self._arguments[0].resolve(makefile, variables, setting)
-        r = self._arguments[1].resolve(makefile, variables, setting)
-        d = self._arguments[2].resolve(makefile, variables, setting)
-        return d.replace(s, r)
+        s = self._arguments[0].resolvestr(makefile, variables, setting)
+        r = self._arguments[1].resolvestr(makefile, variables, setting)
+        d = self._arguments[2].resolvestr(makefile, variables, setting)
+        yield d.replace(s, r)
 
 class PatSubstFunction(Function):
     name = 'patsubst'
@@ -118,13 +119,13 @@ class PatSubstFunction(Function):
     maxargs = 3
 
     def resolve(self, makefile, variables, setting):
-        s = self._arguments[0].resolve(makefile, variables, setting)
-        r = self._arguments[1].resolve(makefile, variables, setting)
-        d = self._arguments[2].resolve(makefile, variables, setting)
+        s = self._arguments[0].resolvestr(makefile, variables, setting)
+        r = self._arguments[1].resolvestr(makefile, variables, setting)
+        d = self._arguments[2].resolvestr(makefile, variables, setting)
 
         p = data.Pattern(s)
-        return ' '.join((p.subst(r, word, False)
-                         for word in d.split()))
+        yield ' '.join((p.subst(r, word, False)
+                        for word in d.split()))
 
 class StripFunction(Function):
     name = 'strip'
@@ -132,7 +133,7 @@ class StripFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        return ' '.join(self._arguments[0].resolve(makefile, variables, setting).split())
+        yield ' '.join(self._arguments[0].resolvestr(makefile, variables, setting).split())
 
 class FindstringFunction(Function):
     name = 'findstring'
@@ -140,11 +141,11 @@ class FindstringFunction(Function):
     maxargs = 2
 
     def resolve(self, makefile, variables, setting):
-        s = self._arguments[0].resolve(makefile, variables, setting)
-        r = self._arguments[1].resolve(makefile, variables, setting)
+        s = self._arguments[0].resolvestr(makefile, variables, setting)
+        r = self._arguments[1].resolvestr(makefile, variables, setting)
         if r.find(s) == -1:
-            return ''
-        return s
+            return
+        yield s
 
 class FilterFunction(Function):
     name = 'filter'
@@ -152,15 +153,15 @@ class FilterFunction(Function):
     maxargs = 2
 
     def resolve(self, makefile, variables, setting):
-        ps = self._arguments[0].resolve(makefile, variables, setting)
-        d = self._arguments[1].resolve(makefile, variables, setting)
+        ps = self._arguments[0].resolvestr(makefile, variables, setting)
+        d = self._arguments[1].resolvestr(makefile, variables, setting)
         plist = [data.Pattern(p) for p in ps.split()]
         r = []
         for w in d.split():
             if any((p.match(w) for p in plist)):
                     r.append(w)
                 
-        return ' '.join(r)
+        yield ' '.join(r)
 
 class FilteroutFunction(Function):
     name = 'filter-out'
@@ -168,8 +169,8 @@ class FilteroutFunction(Function):
     maxargs = 2
 
     def resolve(self, makefile, variables, setting):
-        ps = self._arguments[0].resolve(makefile, variables, setting)
-        d = self._arguments[1].resolve(makefile, variables, setting)
+        ps = self._arguments[0].resolvestr(makefile, variables, setting)
+        d = self._arguments[1].resolvestr(makefile, variables, setting)
         plist = [data.Pattern(p) for p in ps.split()]
         r = []
         for w in d.split():
@@ -177,7 +178,7 @@ class FilteroutFunction(Function):
             if not any((p.match(w) for p in plist)):
                 r.append(w)
 
-        return ' '.join(r)
+        yield ' '.join(r)
 
 class SortFunction(Function):
     name = 'sort'
@@ -185,10 +186,10 @@ class SortFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        d = self._arguments[0].resolve(makefile, variables, setting)
+        d = self._arguments[0].resolvestr(makefile, variables, setting)
         w = d.split()
         w.sort()
-        return ' '.join((w for w in data.withoutdups(w)))
+        yield ' '.join((w for w in data.withoutdups(w)))
 
 class WordFunction(Function):
     name = 'word'
@@ -196,13 +197,13 @@ class WordFunction(Function):
     maxargs = 2
 
     def resolve(self, makefile, variables, setting):
-        n = self._arguments[0].resolve(makefile, variables, setting)
+        n = self._arguments[0].resolvestr(makefile, variables, setting)
         # TODO: provide better error if this doesn't convert
         n = int(n)
-        words = self._arguments[1].resolve(makefile, variables, setting).split()
+        words = self._arguments[1].resolvestr(makefile, variables, setting).split()
         if n < 1 or n > len(words):
-            return ''
-        return words[n - 1]
+            return
+        yield words[n - 1]
 
 class WordlistFunction(Function):
     name = 'wordlist'
@@ -210,20 +211,20 @@ class WordlistFunction(Function):
     maxargs = 3
 
     def resolve(self, makefile, variables, setting):
-        nfrom = self._arguments[0].resolve(makefile, variables, setting)
-        nto = self._arguments[1].resolve(makefile, variables, setting)
+        nfrom = self._arguments[0].resolvestr(makefile, variables, setting)
+        nto = self._arguments[1].resolvestr(makefile, variables, setting)
         # TODO: provide better errors if this doesn't convert
         nfrom = int(nfrom)
         nto = int(nto)
 
-        words = self._arguments[2].resolve(makefile, variables, setting).split()
+        words = self._arguments[2].resolvestr(makefile, variables, setting).split()
 
         if nfrom < 1:
             nfrom = 1
         if nto < 1:
             nto = 1
 
-        return ' '.join(words[nfrom - 1:nto])
+        yield ' '.join(words[nfrom - 1:nto])
 
 class WordsFunction(Function):
     name = 'words'
@@ -231,7 +232,7 @@ class WordsFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        return str(len(self._arguments[0].resolve(makefile, variables, setting).split()))
+        yield str(len(self._arguments[0].resolvestr(makefile, variables, setting).split()))
 
 class FirstWordFunction(Function):
     name = 'firstword'
@@ -239,10 +240,10 @@ class FirstWordFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        wl = self._arguments[0].resolve(makefile, variables, setting).split()
+        wl = self._arguments[0].resolvestr(makefile, variables, setting).split()
         if len(wl) == 0:
-            return ''
-        return wl[0]
+            return
+        yield wl[0]
 
 class LastWordFunction(Function):
     name = 'lastword'
@@ -250,10 +251,10 @@ class LastWordFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        wl = self._arguments[0].resolve(makefile, variables, setting).split()
+        wl = self._arguments[0].resolvestr(makefile, variables, setting).split()
         if len(wl) == 0:
-            return ''
-        return wl[0]
+            return
+        yield wl[0]
 
 def pathsplit(path, default='./'):
     """
@@ -272,8 +273,8 @@ class DirFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        return ' '.join((pathsplit(path)[0]
-                         for path in self._arguments[0].resolve(makefile, variables, setting).split()))
+        yield ' '.join((pathsplit(path)[0]
+                        for path in self._arguments[0].resolvestr(makefile, variables, setting).split()))
 
 class NotDirFunction(Function):
     name = 'notdir'
@@ -281,8 +282,8 @@ class NotDirFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        return ' '.join((pathsplit(path)[1]
-                         for path in self._arguments[0].resolve(makefile, variables, setting).split()))
+        yield ' '.join((pathsplit(path)[1]
+                        for path in self._arguments[0].resolvestr(makefile, variables, setting).split()))
 
 class SuffixFunction(Function):
     name = 'suffix'
@@ -298,7 +299,7 @@ class SuffixFunction(Function):
                 yield dot + suffix
 
     def resolve(self, makefile, variables, setting):
-        return ' '.join(self.suffixes(self._arguments[0].resolve(makefile, variables, setting).split()))
+        yield ' '.join(self.suffixes(self._arguments[0].resolvestr(makefile, variables, setting).split()))
 
 class BasenameFunction(Function):
     name = 'basename'
@@ -316,7 +317,7 @@ class BasenameFunction(Function):
             yield dir + base
 
     def resolve(self, makefile, variables, setting):
-        return ' '.join(self.basenames(self._arguments[0].resolve(makefile, variables, setting).split()))
+        yield ' '.join(self.basenames(self._arguments[0].resolvestr(makefile, variables, setting).split()))
 
 class AddSuffixFunction(Function):
     name = 'addprefix'
@@ -324,9 +325,9 @@ class AddSuffixFunction(Function):
     maxargs = 2
 
     def resolve(self, makefile, variables, setting):
-        suffix = self._arguments[0].resolve(makefile, variables, setting)
+        suffix = self._arguments[0].resolvestr(makefile, variables, setting)
 
-        return ' '.join((w + suffix for w in self._arguments[1].resolve(makefile, variables, setting).split()))
+        yield ' '.join((w + suffix for w in self._arguments[1].resolvestr(makefile, variables, setting).split()))
 
 class AddPrefixFunction(Function):
     name = 'addsuffix'
@@ -334,9 +335,9 @@ class AddPrefixFunction(Function):
     maxargs = 2
 
     def resolve(self, makefile, variables, setting):
-        prefix = self._arguments[0].resolve(makefile, variables, setting)
+        prefix = self._arguments[0].resolvestr(makefile, variables, setting)
 
-        return ' '.join((prefix + w for w in self._arguments[1].resolve(makefile, variables, setting).split()))
+        yield ' '.join((prefix + w for w in self._arguments[1].resolvestr(makefile, variables, setting).split()))
 
 class JoinFunction(Function):
     name = 'join'
@@ -351,10 +352,10 @@ class JoinFunction(Function):
             yield i1 + i2
 
     def resolve(self, makefile, variables, setting):
-        list1 = self._arguments[0].resolve(makefile, variables, setting).split()
-        list2 = self._arguments[1].resolve(makefile, variables, setting).split()
+        list1 = self._arguments[0].resolvestr(makefile, variables, setting).split()
+        list2 = self._arguments[1].resolvestr(makefile, variables, setting).split()
 
-        return ' '.join(self.iterjoin(list1, list2))
+        yield ' '.join(self.iterjoin(list1, list2))
 
 class WildcardFunction(Function):
     name = 'wildcard'
@@ -362,12 +363,12 @@ class WildcardFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        patterns = self._arguments[0].resolve(makefile, variables, setting).split()
+        patterns = self._arguments[0].resolvestr(makefile, variables, setting).split()
 
         r = []
         for p in patterns:
             r.extend([x.replace('\\','/') for x in glob(makefile.workdir, p)])
-        return ' '.join(r)
+        yield ' '.join(r)
 
 class RealpathFunction(Function):
     name = 'realpath'
@@ -375,10 +376,10 @@ class RealpathFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        paths = self._arguments[0].resolve(makefile, variables, setting).split()
+        paths = self._arguments[0].resolvestr(makefile, variables, setting).split()
         fspaths = [os.path.join(makefile.workdir, path) for path in paths]
         realpaths = [os.path.realpath(path).replace('\\','/') for path in fspaths]
-        return ' '.join(realpaths)
+        yield ' '.join(realpaths)
 
 class AbspathFunction(Function):
     name = 'abspath'
@@ -387,9 +388,9 @@ class AbspathFunction(Function):
 
     def resolve(self, makefile, variables, setting):
         assert os.path.isabs(makefile.workdir)
-        paths = self._arguments[0].resolve(makefile, variables, setting).split()
+        paths = self._arguments[0].resolvestr(makefile, variables, setting).split()
         fspaths = [os.path.join(makefile.workdir, path).replace('\\','/') for path in paths]
-        return ' '.join(fspaths)
+        yield ' '.join(fspaths)
 
 class IfFunction(Function):
     name = 'if'
@@ -402,14 +403,13 @@ class IfFunction(Function):
         self._arguments[0].rstrip()
 
     def resolve(self, makefile, variables, setting):
-        condition = self._arguments[0].resolve(makefile, variables, setting)
+        condition = self._arguments[0].resolvestr(makefile, variables, setting)
         if len(condition):
-            return self._arguments[1].resolve(makefile, variables, setting)
-
-        if len(self._arguments) > 2:
-            return self._arguments[2].resolve(makefile, variables, setting)
-
-        return ''
+            for j in self._arguments[1].resolvestr(makefile, variables, setting):
+                yield j
+        elif len(self._arguments) > 2:
+            for j in self._arguments[2].resolvestr(makefile, variables, setting):
+                yield j
 
 class OrFunction(Function):
     name = 'or'
@@ -418,11 +418,10 @@ class OrFunction(Function):
 
     def resolve(self, makefile, variables, setting):
         for arg in self._arguments:
-            r = arg.resolve(makefile, variables, setting)
+            r = arg.resolvestr(makefile, variables, setting)
             if r != '':
-                return r
-
-        return ''
+                yield r
+                return
 
 class AndFunction(Function):
     name = 'and'
@@ -433,11 +432,11 @@ class AndFunction(Function):
         r = ''
 
         for arg in self._arguments:
-            r = arg.resolve(makefile, variables, setting)
+            r = arg.resolvestr(makefile, variables, setting)
             if r == '':
-                return ''
+                return
 
-        return r
+        yield r
 
 class ForEachFunction(Function):
     name = 'foreach'
@@ -445,19 +444,20 @@ class ForEachFunction(Function):
     maxargs = 3
 
     def resolve(self, makefile, variables, setting):
-        vname = self._arguments[0].resolve(makefile, variables, setting)
+        vname = self._arguments[0].resolvestr(makefile, variables, setting)
+        words = self._arguments[1].resolvestr(makefile, variables, setting).split()
 
-        words = self._arguments[1].resolve(makefile, variables, setting).split()
         e = self._arguments[2]
 
-        results = []
-
         v = data.Variables(parent=variables)
-        for w in words:
-            v.set(vname, data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_AUTOMATIC, w)
-            results.append(e.resolve(makefile, v, setting))
+        for i in xrange(0, len(words)):
+            w = words[i]
+            if i > 0:
+                yield ' '
 
-        return ' '.join(results)
+            v.set(vname, data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_AUTOMATIC, w)
+            for j in e.resolve(makefile, v, setting):
+                yield j
 
 class CallFunction(Function):
     name = 'call'
@@ -465,25 +465,26 @@ class CallFunction(Function):
     maxargs = 0
 
     def resolve(self, makefile, variables, setting):
-        vname = self._arguments[0].resolve(makefile, variables, setting)
+        vname = self._arguments[0].resolvestr(makefile, variables, setting)
         if vname in setting:
             raise data.DataError("Recursively setting variable '%s'" % (vname,))
 
         v = data.Variables(parent=variables)
         v.set('0', data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_AUTOMATIC, vname)
         for i in xrange(1, len(self._arguments)):
-            param = self._arguments[i].resolve(makefile, variables, setting)
+            param = self._arguments[i].resolvestr(makefile, variables, setting)
             v.set(str(i), data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_AUTOMATIC, param)
 
         flavor, source, e = variables.get(vname)
         if e is None:
-            return ''
+            return
 
         if flavor == data.Variables.FLAVOR_SIMPLE:
             log.warning("%s: calling variable '%s' which is simply-expanded" % (self.loc, vname))
 
         # but we'll do it anyway
-        return e.resolve(makefile, v, setting + [vname])
+        for j in e.resolve(makefile, v, setting + [vname]):
+            yield j
 
 class ValueFunction(Function):
     name = 'value'
@@ -491,13 +492,13 @@ class ValueFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        varname = self._arguments[0].resolve(makefile, variables, setting)
+        varname = self._arguments[0].resolvestr(makefile, variables, setting)
 
         flavor, source, value = variables.get(varname, expand=False)
         if value is None:
-            return ''
+            return
 
-        return value
+        yield value
 
 class EvalFunction(Function):
     name = 'eval'
@@ -510,10 +511,11 @@ class EvalFunction(Function):
             # command execution. This seems really dumb to me, so I don't!
             raise data.DataError("$(eval) not allowed via recursive expansion after parsing is finished", self.loc)
 
-        text = StringIO(self._arguments[0].resolve(makefile, variables, setting))
+        text = StringIO(self._arguments[0].resolvestr(makefile, variables, setting))
         stmts = parser.parsestream(text, 'evaluation from %s' % self.loc)
         stmts.execute(makefile)
-        return ''
+        return
+        yield
 
 class OriginFunction(Function):
     name = 'origin'
@@ -521,28 +523,23 @@ class OriginFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        vname = self._arguments[0].resolve(makefile, variables, setting)
+        vname = self._arguments[0].resolvestr(makefile, variables, setting)
 
         flavor, source, value = variables.get(vname)
         if source is None:
-            return 'undefined'
-
-        if source == data.Variables.SOURCE_OVERRIDE:
-            return 'override'
-
-        if source == data.Variables.SOURCE_MAKEFILE:
-            return 'file'
-
-        if source == data.Variables.SOURCE_ENVIRONMENT:
-            return 'environment'
-
-        if source == data.Variables.SOURCE_COMMANDLINE:
-            return 'command line'
-
-        if source == data.Variables.SOURCE_AUTOMATIC:
-            return 'automatic'
-
-        assert False, "Unexpected source value: %s" % source
+            yield 'undefined'
+        elif source == data.Variables.SOURCE_OVERRIDE:
+            yield 'override'
+        elif source == data.Variables.SOURCE_MAKEFILE:
+            yield 'file'
+        elif source == data.Variables.SOURCE_ENVIRONMENT:
+            yield 'environment'
+        elif source == data.Variables.SOURCE_COMMANDLINE:
+            yield 'command line'
+        elif source == data.Variables.SOURCE_AUTOMATIC:
+            yield 'automatic'
+        else:
+            assert False, "Unexpected source value: %s" % source
 
 class FlavorFunction(Function):
     name = 'flavor'
@@ -550,18 +547,17 @@ class FlavorFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        varname = self._arguments[0].resolve(makefile, variables, setting)
+        varname = self._arguments[0].resolvestr(makefile, variables, setting)
         
         flavor, source, value = variables.get(varname)
         if flavor is None:
-            return 'undefined'
-
-        if flavor == data.Variables.FLAVOR_RECURSIVE:
-            return 'recursive'
+            yield 'undefined'
+        elif flavor == data.Variables.FLAVOR_RECURSIVE:
+            yield 'recursive'
         elif flavor == data.Variables.FLAVOR_SIMPLE:
-            return 'simple'
-
-        assert False, "Neither simple nor recursive?"
+            yield 'simple'
+        else:
+            assert False, "Neither simple nor recursive?"
 
 class ShellFunction(Function):
     name = 'shell'
@@ -571,7 +567,7 @@ class ShellFunction(Function):
     def resolve(self, makefile, variables, setting):
         #TODO: call this once up-front somewhere and save the result?
         shell, msys = util.checkmsyscompat()
-        cline = self._arguments[0].resolve(makefile, variables, setting)
+        cline = self._arguments[0].resolvestr(makefile, variables, setting)
 
         log.debug("%s: running shell command '%s'" % (self.loc, cline))
         if msys:
@@ -584,7 +580,7 @@ class ShellFunction(Function):
             stdout = stdout[:-1]
         stdout = stdout.replace('\n', ' ')
 
-        return stdout
+        yield stdout
 
 class ErrorFunction(Function):
     name = 'error'
@@ -592,7 +588,7 @@ class ErrorFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        v = self._arguments[0].resolve(makefile, variables, setting)
+        v = self._arguments[0].resolvestr(makefile, variables, setting)
         raise data.DataError(v, self.loc)
 
 class WarningFunction(Function):
@@ -601,9 +597,10 @@ class WarningFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        v = self._arguments[0].resolve(makefile, variables, setting)
+        v = self._arguments[0].resolvestr(makefile, variables, setting)
         log.warning(v)
-        return ''
+        return
+        yield
 
 class InfoFunction(Function):
     name = 'info'
@@ -611,9 +608,10 @@ class InfoFunction(Function):
     maxargs = 1
 
     def resolve(self, makefile, variables, setting):
-        v = self._arguments[0].resolve(makefile, variables, setting)
+        v = self._arguments[0].resolvestr(makefile, variables, setting)
         log.info(v)
-        return ''
+        return
+        yield
 
 functionmap = {
     'subst': SubstFunction,
