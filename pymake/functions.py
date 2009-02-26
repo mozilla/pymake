@@ -2,10 +2,9 @@
 Makefile functions.
 """
 
-import parser
-import data
+import parser, data, util
 import subprocess, os, logging
-from pymake.globrelative import glob
+from globrelative import glob
 from cStringIO import StringIO
 
 log = logging.getLogger('pymake.data')
@@ -157,8 +156,8 @@ class FilterFunction(Function):
         plist = [data.Pattern(p) for p in data.splitwords(ps)]
         r = []
         for w in data.splitwords(d):
-            if any((p.match(w) for p in plist)):
-                    r.append(w)
+            if util.any((p.match(w) for p in plist)):
+                r.append(w)
                 
         return ' '.join(r)
 
@@ -174,7 +173,7 @@ class FilteroutFunction(Function):
         r = []
         for w in data.splitwords(d):
             found = False
-            if not any((p.match(w) for p in plist)):
+            if not util.any((p.match(w) for p in plist)):
                 r.append(w)
 
         return ' '.join(r)
@@ -260,7 +259,7 @@ def pathsplit(path, default='./'):
     Splits a path into dirpart, filepart on the last slash. If there is no slash, dirpart
     is ./
     """
-    dir, slash, file = path.rpartition('/')
+    dir, slash, file = util.strrpartition(path, '/')
     if dir == '':
         return default, file
 
@@ -293,7 +292,7 @@ class SuffixFunction(Function):
     def suffixes(words):
         for w in words:
             dir, file = pathsplit(w)
-            base, dot, suffix = file.rpartition('.')
+            base, dot, suffix = util.strrpartition(file, '.')
             if base != '':
                 yield dot + suffix
 
@@ -309,7 +308,7 @@ class BasenameFunction(Function):
     def basenames(words):
         for w in words:
             dir, file = pathsplit(w, '')
-            base, dot, suffix = file.rpartition('.')
+            base, dot, suffix = util.strrpartition(file, '.')
             if dot == '':
                 base = suffix
 

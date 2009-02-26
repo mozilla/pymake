@@ -456,12 +456,12 @@ class Target(object):
 
         log.info(indent + "Trying to find implicit rule to make '%s'" % (self.target,))
 
-        dir, s, file = self.target.rpartition('/')
+        dir, s, file = pymake.util.strrpartition(self.target, '/')
         dir = dir + s
 
         candidates = [] # list of PatternRuleInstance
 
-        hasmatch = any((r.hasspecificmatch(file) for r in makefile.implicitrules))
+        hasmatch = pymake.util.any((r.hasspecificmatch(file) for r in makefile.implicitrules))
         log.debug("Does any implicit rule match '%s'? %s" % (self.target, hasmatch))
 
         for r in makefile.implicitrules:
@@ -572,8 +572,8 @@ class Target(object):
         # depend on it are always out of date. This is like .FORCE but more
         # compatible with other makes.
         # Otherwise, we don't know how to make it.
-        if not len(self.rules) and self.mtime is None and not any((len(rule.prerequisites) > 0
-                                                                   for rule in self.rules)):
+        if not len(self.rules) and self.mtime is None and not pymake.util.any((len(rule.prerequisites) > 0
+                                                                               for rule in self.rules)):
             if required:
                 raise ResolutionError("No rule to make target '%s' needed by %r" % (self.target,
                                                                                     targetstack))
@@ -842,14 +842,14 @@ class Target(object):
             self._notifyerror(makefile, e)
 
 def dirpart(p):
-    d, s, f = p.rpartition('/')
+    d, s, f = pymake.util.strrpartition(p, '/')
     if d == '':
         return '.'
 
     return d
 
 def filepart(p):
-    d, s, f = p.rpartition('/')
+    d, s, f = pymake.util.strrpartition(p, '/')
     return f
 
 def setautomatic(v, name, plist):
@@ -1024,7 +1024,7 @@ class PatternRule(object):
         self.commands.append(c)
 
     def ismatchany(self):
-        return any((t.ismatchany() for t in self.targetpatterns))
+        return pymake.util.any((t.ismatchany() for t in self.targetpatterns))
 
     def hasspecificmatch(self, file):
         for p in self.targetpatterns:

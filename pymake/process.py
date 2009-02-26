@@ -3,7 +3,7 @@ Skipping shell invocations is good, when possible. This wrapper around subproces
 parsing command lines into argv and making sure that no shell magic is being used.
 """
 
-import subprocess, shlex, re, logging, sys, traceback, os
+import subprocess, shlex, re, logging, sys, traceback, os, util
 import command
 
 _log = logging.getLogger('pymake.process')
@@ -118,7 +118,7 @@ class ParallelContext(object):
             for c in clist:
                 c.run()
 
-            dowait = any((len(c.running) for c in ParallelContext._allcontexts))
+            dowait = util.any((len(c.running) for c in ParallelContext._allcontexts))
 
             if dowait:
                 pid, status = os.waitpid(-1, 0)

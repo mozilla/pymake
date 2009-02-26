@@ -64,9 +64,9 @@ def parsecommandlineargs(args):
     for i in xrange(0, len(args)):
         a = args[i]
 
-        vname, t, val = a.partition(':=')
+        vname, t, val = util.strpartition(a, ':=')
         if t == '':
-            vname, t, val = a.partition('=')
+            vname, t, val = util.strpartition(a, '=')
         if t != '':
             stmts.append(Override(a))
 
