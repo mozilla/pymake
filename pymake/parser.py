@@ -586,7 +586,10 @@ def parsestream(fd, filename):
 
             e, token, offset = parsemakesyntax(d, offset, varsettokens + ('::', ':'), itermakefilechars)
             if token is None:
-                condstack[-1].append(parserdata.EmptyDirective(e))
+                e.rstrip()
+                e.lstrip()
+                if not e.isempty():
+                    condstack[-1].append(parserdata.EmptyDirective(e))
                 continue
 
             # if we encountered real makefile syntax, the current rule is over
@@ -721,7 +724,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
         except StopIteration:
             break
 
-        stacktop.expansion.append(s)
+        stacktop.expansion.appendstr(s)
         if token is None:
             continue
 
@@ -734,7 +737,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
 
             c = d.data[offset]
             if c == '$':
-                stacktop.expansion.append('$')
+                stacktop.expansion.appendstr('$')
                 offset = offset + 1
             elif c in ('(', '{'):
                 closebrace = _matchingbrace[c]
@@ -764,19 +767,19 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 continue
             else:
                 e = data.Expansion.fromstring(c)
-                stacktop.expansion.append(functions.VariableRef(loc, e))
+                stacktop.expansion.appendfunc(functions.VariableRef(loc, e))
                 offset += 1
         elif token in ('(', '{'):
             assert token == stacktop.openbrace
 
-            stacktop.expansion.append(token)
+            stacktop.expansion.appendstr(token)
             stack.append(ParseStackFrame(PARSESTATE_PARENMATCH,
                                          stacktop.expansion,
                                          TokenList.get((token, stacktop.closebrace,)),
                                          openbrace=token, closebrace=stacktop.closebrace, loc=d.getloc(tokenoffset)))
         elif stacktop.parsestate == PARSESTATE_PARENMATCH:
             assert token == stacktop.closebrace
-            stacktop.expansion.append(token)
+            stacktop.expansion.appendstr(token)
             stack.pop()
         elif stacktop.parsestate == PARSESTATE_TOPLEVEL:
             assert len(stack) == 1
@@ -792,7 +795,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
             elif token in (')', '}'):
                     stacktop.function.setup()
                     stack.pop()
-                    stack[-1].expansion.append(stacktop.function)
+                    stack[-1].expansion.appendfunc(stacktop.function)
             else:
                 assert False, "Not reached, PARSESTATE_FUNCTION"
         elif stacktop.parsestate == PARSESTATE_VARNAME:
@@ -803,7 +806,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 stacktop.tokenlist = TokenList.get(('=', stacktop.openbrace, stacktop.closebrace, '$'))
             elif token in (')', '}'):
                 stack.pop()
-                stack[-1].expansion.append(functions.VariableRef(stacktop.loc, stacktop.expansion))
+                stack[-1].expansion.appendfunc(functions.VariableRef(stacktop.loc, stacktop.expansion))
             else:
                 assert False, "Not reached, PARSESTATE_VARNAME"
         elif stacktop.parsestate == PARSESTATE_SUBSTFROM:
@@ -817,18 +820,18 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 # parses it. Issue a warning. Combine the varname and substfrom expansions to
                 # make the compatible varname. See tests/var-substitutions.mk SIMPLE3SUBSTNAME
                 _log.warning("%s: Variable reference looks like substitution without =", stacktop.loc)
-                stacktop.varname.append(':')
+                stacktop.varname.appendstr(':')
                 stacktop.varname.concat(stacktop.expansion)
                 stack.pop()
-                stack[-1].expansion.append(functions.VariableRef(stacktop.loc, stacktop.varname))
+                stack[-1].expansion.appendfunc(functions.VariableRef(stacktop.loc, stacktop.varname))
             else:
                 assert False, "Not reached, PARSESTATE_SUBSTFROM"
         elif stacktop.parsestate == PARSESTATE_SUBSTTO:
             assert token in  (')','}'), "Not reached, PARSESTATE_SUBSTTO"
 
             stack.pop()
-            stack[-1].expansion.append(functions.SubstitutionRef(stacktop.loc, stacktop.varname,
-                                                                 stacktop.substfrom, stacktop.expansion))
+            stack[-1].expansion.appendfunc(functions.SubstitutionRef(stacktop.loc, stacktop.varname,
+                                                                     stacktop.substfrom, stacktop.expansion))
         else:
             assert False, "Unexpected parse state %s" % stacktop.parsestate
 

@@ -67,13 +67,13 @@ class Expansion(object):
 
     def __init__(self, loc=None):
         # Each element is either a string or a function
-        self._elements = []
+        self._elements = [] # element, isfunc
         self.loc = loc
 
     @staticmethod
     def fromstring(s):
         e = Expansion()
-        e.append(s)
+        e.appendstr(s)
         return e
 
     def clone(self):
@@ -81,42 +81,51 @@ class Expansion(object):
         e._elements = list(self._elements)
         return e
 
-    def append(self, object):
-        if not isinstance(object, (str, functions.Function)):
-            raise DataError("Expansions can contain only strings or functions, got %s" % (type(object),))
+    def _lastisstring(self):
+        return len(self._elements) and not self._elements[-1][1]
 
-        if object == '':
+    def _firstisstring(self):
+        return len(self._elements) and not self._elements[0][1]
+
+    def appendstr(self, s):
+        assert isinstance(s, str)
+        if s == '':
             return
 
-        if len(self) and isinstance(object, str) and isinstance(self[-1], str):
-            self[-1] += object
+        if self._lastisstring():
+            s = self._elements[-1][0] + s
+            self._elements[-1] = s, False
         else:
-            self._elements.append(object)
+            self._elements.append((s, False))
+
+    def appendfunc(self, func):
+        assert isinstance(func, functions.Function)
+        self._elements.append((func, True))
 
     def concat(self, o):
         """Concatenate the other expansion on to this one."""
-        if len(self) > 0 and len(o) > 0 and isinstance(self[-1], str) and isinstance(o[0], str):
-            self[-1] += o[0]
-            self._elements.extend(o[1:])
+        if o._firstisstring() and self._lastisstring():
+            mystr = self._elements[-1][0]
+            ostr = o._elements[0][0]
+            self._elements[-1] = mystr + ostr, False
+            self._elements.extend(o._elements[1:])
         else:
-            self._elements.extend(o)
+            self._elements.extend(o._elements)
+
+    def isempty(self):
+        return (not len(self._elements)) or self._elements[0] == ('', False)
 
     def lstrip(self):
         """Strip leading literal whitespace from this expansion."""
-        if len(self) > 0 and isinstance(self[0], str):
-            assert len(self) == 1 or not isinstance(self[1], str), "Strings didn't fold"
-            self[0] = self[0].lstrip()
+        if self._firstisstring():
+            s = self._elements[0][0].lstrip()
+            self._elements[0] = s, False
 
     def rstrip(self):
         """Strip trailing literal whitespace from this expansion."""
-        if len(self) > 0 and isinstance(self[-1], str):
-            assert len(self) == 1 or not isinstance(self[-2], str), "Strings didn't fold"
-            self[-1] = self[-1].rstrip()
-
-    def trimlastnewline(self):
-        """Strip only the last newline, if present."""
-        if len(self) > 0 and isinstance(self[-1], str) and self[-1][-1] == '\n':
-            self[-1] = self[-1][:-1]
+        if self._lastisstring():
+            s = self._elements[-1][0].rstrip()
+            self._elements[-1] = s, False
 
     def resolve(self, makefile, variables, setting=[]):
         """
@@ -131,18 +140,25 @@ class Expansion(object):
         assert isinstance(variables, Variables)
         assert isinstance(setting, list)
 
-        for i in self._elements:
-            if isinstance(i, str):
-                yield i
-            else:
-                for j in i.resolve(makefile, variables, setting):
+        for e, isfunc in self._elements:
+            if isfunc:
+                it = e.resolve(makefile, variables, setting)
+                assert not isinstance(it, str)
+                for j in it:
                     yield j
+            else:
+                assert isinstance(e, str)
+                yield e
                     
     def resolvestr(self, makefile, variables, setting=[]):
         s = ''
         for i in self.resolve(makefile, variables, setting):
-            if i != '':
-                s += i
+            try:
+                if i != '':
+                    s += i
+            except:
+                print "error appending i: %r" % (i,)
+                raise
         return s
 
     def resolvesplit(self, makefile, variables, setting=[]):
@@ -150,15 +166,6 @@ class Expansion(object):
 
     def __len__(self):
         return len(self._elements)
-
-    def __getitem__(self, key):
-        return self._elements[key]
-
-    def __setitem__(self, key, v):
-        self._elements[key] = v
-
-    def __iter__(self):
-        return iter(self._elements)
 
     def __repr__(self):
         return "<Expansion with elements: %r>" % (self._elements,)
@@ -223,7 +230,7 @@ class Variables(object):
                         return pflavor, psource, pvalue + ' ' + valuestr
 
                     pvalue = pvalue.clone()
-                    pvalue.append(' ')
+                    pvalue.appendstr(' ')
                     pvalue.concat(valueexp)
 
                     return pflavor, psource, pvalue
