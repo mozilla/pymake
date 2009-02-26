@@ -6,16 +6,6 @@ from pymake.globrelative import hasglob, glob
 _log = logging.getLogger('pymake.data')
 _tabwidth = 4
 
-def _charlocation(start, char):
-    """
-    Return the column position after processing a perhaps-tab character.
-    This function is meant to be used with reduce().
-    """
-    if char != '\t':
-        return start + 1
-
-    return start + _tabwidth - start % _tabwidth
-
 class Location(object):
     """
     A location within a makefile.
@@ -36,10 +26,22 @@ class Location(object):
         Returns a new location on the same line offset by
         the specified string.
         """
-        newcol = reduce(_charlocation, data, self.column)
-        if newcol == self.column:
+        column = self.column
+        i = 0
+        while True:
+            j = data.find('\t', i)
+            if j == -1:
+                column += len(data) - i
+                break
+
+            column += j - i
+            column += _tabwidth
+            column -= column % _tabwidth
+            i = j + 1
+
+        if column == self.column:
             return self
-        return Location(self.path, self.line, newcol)
+        return Location(self.path, self.line, column)
 
     def __str__(self):
         return "%s:%s:%s" % (self.path, self.line, self.column)
@@ -101,7 +103,6 @@ class Override(Statement):
 
 class DummyRule(object):
     def addcommand(self, r):
-        _log.debug("Discarding rule at %s" % (r.loc,))
         pass
 
 class Rule(Statement):
@@ -114,7 +115,7 @@ class Rule(Statement):
         self.doublecolon = doublecolon
 
     def execute(self, makefile, context):
-        atargets = data.splitwords(self.targetexp.resolve(makefile, makefile.variables))
+        atargets = data.stripdotslashes(self.targetexp.resolvestr(makefile, makefile.variables).split())
         targets = [data.Pattern(p) for p in _expandwildcards(makefile, atargets)]
 
         if not len(targets):
@@ -126,7 +127,7 @@ class Rule(Statement):
             raise data.DataError("Mixed implicit and normal rule", self.targetexp.loc)
         ispattern, = ispatterns
 
-        deps = [p for p in _expandwildcards(makefile, data.splitwords(self.depexp.resolve(makefile, makefile.variables)))]
+        deps = [p for p in _expandwildcards(makefile, data.stripdotslashes(self.depexp.resolvestr(makefile, makefile.variables).split()))]
         if ispattern:
             rule = data.PatternRule(targets, map(data.Pattern, deps), self.doublecolon, loc=self.targetexp.loc)
             makefile.appendimplicitrule(rule)
@@ -153,18 +154,18 @@ class StaticPatternRule(Statement):
         self.doublecolon = doublecolon
 
     def execute(self, makefile, context):
-        targets = list(_expandwildcards(makefile, data.splitwords(self.targetexp.resolve(makefile, makefile.variables))))
+        targets = list(_expandwildcards(makefile, data.stripdotslashes(self.targetexp.resolvestr(makefile, makefile.variables).split())))
 
         if not len(targets):
             context.currule = DummyRule()
             return
 
-        patterns = data.splitwords(self.patternexp.resolve(makefile, makefile.variables))
+        patterns = list(data.stripdotslashes(self.patternexp.resolvestr(makefile, makefile.variables).split()))
         if len(patterns) != 1:
             raise data.DataError("Static pattern rules must have a single pattern", self.patternexp.loc)
         pattern = data.Pattern(patterns[0])
 
-        deps = [data.Pattern(p) for p in _expandwildcards(makefile, data.splitwords(self.depexp.resolve(makefile, makefile.variables)))]
+        deps = [data.Pattern(p) for p in _expandwildcards(makefile, data.stripdotslashes(self.depexp.resolvestr(makefile, makefile.variables).split()))]
 
         rule = data.PatternRule([pattern], deps, self.doublecolon, loc=self.targetexp.loc)
 
@@ -211,7 +212,7 @@ class SetVariable(Statement):
         self.source = source
 
     def execute(self, makefile, context):
-        vname = self.vnameexp.resolve(makefile, makefile.variables)
+        vname = self.vnameexp.resolvestr(makefile, makefile.variables)
         if len(vname) == 0:
             raise data.DataError("Empty variable name", self.vnameexp.loc)
 
@@ -220,7 +221,7 @@ class SetVariable(Statement):
         else:
             setvariables = []
 
-            targets = [data.Pattern(t) for t in data.splitwords(self.targetexp.resolve(makefile, makefile.variables))]
+            targets = [data.Pattern(t) for t in data.stripdotslashes(self.targetexp.resolvestr(makefile, makefile.variables).split())]
             for t in targets:
                 if t.ispattern():
                     setvariables.append(makefile.getpatternvariables(t))
@@ -247,7 +248,7 @@ class SetVariable(Statement):
                 flavor = data.Variables.FLAVOR_SIMPLE
                 d = parser.Data.fromstring(self.value, self.valueloc)
                 e, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
-                value = e.resolve(makefile, makefile.variables)
+                value = e.resolvestr(makefile, makefile.variables)
 
             v.set(vname, flavor, self.source, value)
 
@@ -272,8 +273,8 @@ class EqCondition(Condition):
         self.exp2 = exp2
 
     def evaluate(self, makefile):
-        r1 = self.exp1.resolve(makefile, makefile.variables)
-        r2 = self.exp2.resolve(makefile, makefile.variables)
+        r1 = self.exp1.resolvestr(makefile, makefile.variables)
+        r2 = self.exp2.resolvestr(makefile, makefile.variables)
         return (r1 == r2) == self.expected
 
     def __str__(self):
@@ -287,10 +288,8 @@ class IfdefCondition(Condition):
         self.exp = exp
 
     def evaluate(self, makefile):
-        vname = self.exp.resolve(makefile, makefile.variables)
+        vname = self.exp.resolvestr(makefile, makefile.variables)
         flavor, source, value = makefile.variables.get(vname, expand=False)
-
-        _log.debug("ifdef at %s: vname: %r value is %r" % (self.exp.loc, vname, value))
 
         if value is None:
             return not self.expected
@@ -334,7 +333,7 @@ class ConditionBlock(Statement):
         i = 0
         for c, statements in self._groups:
             if c.evaluate(makefile):
-                _log.debug("Condition at %s met by clause #%i" % (self.loc, i))
+                _log.debug("Condition at %s met by clause #%i", self.loc, i)
                 statements.execute(makefile, context)
                 return
 
@@ -358,7 +357,7 @@ class Include(Statement):
         self.required = required
 
     def execute(self, makefile, context):
-        files = data.splitwords(self.exp.resolve(makefile, makefile.variables))
+        files = self.exp.resolvestr(makefile, makefile.variables).split()
         for f in files:
             makefile.include(f, self.required, loc=self.exp.loc)
 
@@ -371,7 +370,7 @@ class VPathDirective(Statement):
         self.exp = exp
 
     def execute(self, makefile, context):
-        words = data.splitwords(self.exp.resolve(makefile, makefile.variables))
+        words = list(data.stripdotslashes(self.exp.resolvestr(makefile, makefile.variables).split()))
         if len(words) == 0:
             makefile.clearallvpaths()
         else:
@@ -399,9 +398,9 @@ class ExportDirective(Statement):
 
     def execute(self, makefile, context):
         if self.single:
-            vlist = [self.exp.resolve(makefile, makefile.variables)]
+            vlist = [self.exp.resolvestr(makefile, makefile.variables)]
         else:
-            vlist = data.splitwords(self.exp.resolve(makefile, makefile.variables))
+            vlist = self.exp.resolvestr(makefile, makefile.variables).split()
             if not len(vlist):
                 raise data.DataError("Exporting all variables is not supported", self.exp.loc)
 
@@ -417,7 +416,7 @@ class EmptyDirective(Statement):
         self.exp = exp
 
     def execute(self, makefile, context):
-        v = self.exp.resolve(makefile, makefile.variables)
+        v = self.exp.resolvestr(makefile, makefile.variables)
         if v.strip() != '':
             raise data.DataError("Line expands to non-empty value", self.exp.loc)
 

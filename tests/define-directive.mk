@@ -8,6 +8,10 @@ shellvar=hello; \
   test "$$shellvar" = "hello"
 endef
 
+define VARWITHCOMMENT # comment
+value
+endef
+
 define TEST3
   whitespace
 endef
@@ -49,6 +53,7 @@ endef
 all:
 	$(COMMANDS)
 	$(COMMANDS2)
+	test '$(VARWITHCOMMENT)' = 'value'
 	test '$(COMMANDS2)' = 'shellvar=hello; test "$$shellvar" = "hello"'
 	test "$(TEST3)" = "  whitespace"
 	@echo TEST-PASS

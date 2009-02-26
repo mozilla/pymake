@@ -24,7 +24,7 @@ do the dirty work of "executing" the parsed data into a Makefile data structure.
 import logging, re, os
 import data, functions, util, parserdata
 
-log = logging.getLogger('pymake.parser')
+_log = logging.getLogger('pymake.parser')
 
 class SyntaxError(util.MakeError):
     pass
@@ -366,18 +366,6 @@ def ensureend(d, offset, msg, ifunc=itermakefilechars):
         if c != '' and not c.isspace():
             raise SyntaxError(msg, d.getloc(o))
 
-def iterlines(fd):
-    """Yield (lineno, line) for each line in fd"""
-
-    lineno = 0
-    for line in fd:
-        lineno += 1
-
-        if line.endswith('\r\n'):
-            line = line[:-2] + '\n'
-
-        yield (lineno, line)
-
 eqargstokenlist = TokenList.get(('(', "'", '"'))
 
 def ifeq(d, offset):
@@ -459,12 +447,12 @@ def parsefile(pathname):
         oldmtime, stmts = _parsecache[pathname]
 
         if mtime == oldmtime:
-            log.debug("Using '%s' from the parser cache.", pathname)
+            _log.debug("Using '%s' from the parser cache.", pathname)
             return stmts
 
-        log.debug("Not using '%s' from the parser cache, mtimes don't match: was %s, now %s" % (pathname, oldmtime, mtime))
+        _log.debug("Not using '%s' from the parser cache, mtimes don't match: was %s, now %s", pathname, oldmtime, mtime)
 
-    stmts = parsestream(open(pathname), pathname)
+    stmts = parsestream(open(pathname, "rU"), pathname)
     _parsecache[pathname] = mtime, stmts
     return stmts
 
@@ -478,7 +466,7 @@ def parsestream(fd, filename):
     currule = False
     condstack = [parserdata.StatementList()]
 
-    fdlines = iterlines(fd)
+    fdlines = enumerate(fd)
 
     while True:
         assert len(condstack) > 0
@@ -539,6 +527,7 @@ def parsestream(fd, filename):
             if kword == 'define':
                 currule = False
                 vname, t, i = parsemakesyntax(d, offset, (), itermakefilechars)
+                vname.rstrip()
 
                 d = DynamicData(fdlines, filename)
                 d.readline()
@@ -551,6 +540,7 @@ def parsestream(fd, filename):
                 currule = False
                 incfile, t, offset = parsemakesyntax(d, offset, (), itermakefilechars)
                 condstack[-1].append(parserdata.Include(incfile, kword == 'include'))
+
                 continue
 
             if kword == 'vpath':
@@ -826,7 +816,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 # A substitution of the form $(VARNAME:.ee) is probably a mistake, but make
                 # parses it. Issue a warning. Combine the varname and substfrom expansions to
                 # make the compatible varname. See tests/var-substitutions.mk SIMPLE3SUBSTNAME
-                log.warning("%s: Variable reference looks like substitution without =" % (stacktop.loc, ))
+                _log.warning("%s: Variable reference looks like substitution without =", stacktop.loc)
                 stacktop.varname.append(':')
                 stacktop.varname.concat(stacktop.expansion)
                 stack.pop()

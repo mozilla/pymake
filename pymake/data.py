@@ -3,15 +3,11 @@ A representation of makefile data structures.
 """
 
 import logging, re, os
-import parserdata
-import pymake.parser
-import pymake.functions
-import pymake.process
-import pymake.util
+import parserdata, parser, functions, process, util
 
-log = logging.getLogger('pymake.data')
+_log = logging.getLogger('pymake.data')
 
-class DataError(pymake.util.MakeError):
+class DataError(util.MakeError):
     pass
 
 class ResolutionError(DataError):
@@ -47,18 +43,14 @@ def getmtime(path):
     except OSError:
         return None
 
-_ws = re.compile(r'\s+')
+def stripdotslash(s):
+    if s.startswith('./'):
+        return s[2:]
+    return s
 
-def splitwords(s):
-    """Split string s into words delimited by whitespace."""
-
-    words = _ws.split(s)
-    for i in (0, -1):
-        if len(words) == 0:
-            break
-        if words[i] == '':
-            del words[i]
-    return words
+def stripdotslashes(sl):
+    for s in sl:
+        yield stripdotslash(s)
 
 def getindent(stack):
     return ''.ljust(len(stack) - 1)
@@ -84,8 +76,13 @@ class Expansion(object):
         e.append(s)
         return e
 
+    def clone(self):
+        e = Expansion()
+        e._elements = list(self._elements)
+        return e
+
     def append(self, object):
-        if not isinstance(object, (str, pymake.functions.Function)):
+        if not isinstance(object, (str, functions.Function)):
             raise DataError("Expansions can contain only strings or functions, got %s" % (type(object),))
 
         if object == '':
@@ -134,8 +131,15 @@ class Expansion(object):
         assert isinstance(variables, Variables)
         assert isinstance(setting, list)
 
-        return ''.join( (_if_else(isinstance(i, str), lambda: i, lambda: i.resolve(makefile, variables, setting))
-                         for i in self._elements) )
+        for i in self._elements:
+            if isinstance(i, str):
+                yield i
+            else:
+                for j in i.resolve(makefile, variables, setting):
+                    yield j
+                    
+    def resolvestr(self, makefile, variables, setting=[]):
+        return ''.join(self.resolve(makefile, variables, setting))
 
     def __len__(self):
         return len(self._elements)
@@ -171,7 +175,7 @@ class Variables(object):
     # SOURCE_IMPLICIT = 5
 
     def __init__(self, parent=None):
-        self._map = {}
+        self._map = {} # vname -> flavor, source, valuestr, valueexp, expansionerror
         self.parent = parent
 
     def readfromenvironment(self, env):
@@ -188,7 +192,7 @@ class Variables(object):
         it will be returned as an unexpanded string.
         """
         if name in self._map:
-            flavor, source, valuestr = self._map[name]
+            flavor, source, valuestr, valueexp, expansionerror = self._map[name]
             if flavor == self.FLAVOR_APPEND:
                 if self.parent:
                     pflavor, psource, pvalue = self.parent.get(name, expand)
@@ -206,11 +210,16 @@ class Variables(object):
                     if not expand:
                         return pflavor, psource, pvalue + ' ' + valuestr
 
-                    d = pymake.parser.Data.fromstring(valuestr, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
-                    appende, t, o = pymake.parser.parsemakesyntax(d, 0, (), pymake.parser.iterdata)
+                    if expansionerror is not None:
+                        raise expansionerror
 
+                    
+                    d = parser.Data.fromstring(valuestr, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
+                    appende, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
+
+                    pvalue = pvalue.clone()
                     pvalue.append(' ')
-                    pvalue.concat(appende)
+                    pvalue.concat(valueexp)
 
                     return pflavor, psource, pvalue
                     
@@ -218,8 +227,10 @@ class Variables(object):
                 return flavor, source, valuestr
 
             if flavor == self.FLAVOR_RECURSIVE:
-                d = pymake.parser.Data.fromstring(valuestr, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
-                val, t, o = pymake.parser.parsemakesyntax(d, 0, (), pymake.parser.iterdata)
+                if expansionerror is not None:
+                    raise expansionerror
+
+                val = valueexp
             else:
                 val = Expansion.fromstring(valuestr)
 
@@ -238,31 +249,64 @@ class Variables(object):
         prevflavor, prevsource, prevvalue = self.get(name)
         if prevsource is not None and source > prevsource:
             # TODO: give a location for this warning
-            log.warning("not setting variable '%s', set by higher-priority source to value '%s'" % (name, prevvalue))
+            _log.info("not setting variable '%s', set by higher-priority source to value '%s'" % (name, prevvalue))
             return
 
-        self._map[name] = (flavor, source, value)
+        if flavor == self.FLAVOR_SIMPLE:
+            valueexp = None
+            expansionerror = None
+        else:
+            try:
+                d = parser.Data.fromstring(value, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
+                valueexp, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
+                expansionerror = None
+            except parser.SyntaxError, e:
+                valueexp = None
+                expansionerror = e
+
+        self._map[name] = (flavor, source, value, valueexp, expansionerror)
 
     def append(self, name, source, value, variables, makefile):
         assert source in (self.SOURCE_OVERRIDE, self.SOURCE_MAKEFILE, self.SOURCE_AUTOMATIC)
         assert isinstance(value, str)
+
+        def expand():
+            try:
+                d = parser.Data.fromstring(value, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
+                valueexp, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
+                return valueexp, None
+            except parser.SyntaxError, e:
+                return None, e
         
-        if name in self._map:
-            prevflavor, prevsource, prevvalue = self._map[name]
-            if source > prevsource:
-                # TODO: log a warning?
-                return
+        if name not in self._map:
+            exp, err = expand()
+            self._map[name] = self.FLAVOR_APPEND, source, value, exp, err
+            return
 
-            if prevflavor == self.FLAVOR_SIMPLE:
-                d = pymake.parser.Data.fromstring(value, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
-                e, t, o = pymake.parser.parsemakesyntax(d, 0, (), pymake.parser.iterdata)
-                val = e.resolve(makefile, variables, [name])
-            else:
-                val = value
+        prevflavor, prevsource, prevvalue, valueexp, err = self._map[name]
+        if source > prevsource:
+            # TODO: log a warning?
+            return
 
-            self._map[name] = prevflavor, prevsource, prevvalue + ' ' + val
-        else:
-            self._map[name] = self.FLAVOR_APPEND, source, value
+        if prevflavor == self.FLAVOR_SIMPLE:
+            exp, err = expand()
+            if err is not None:
+                raise err
+
+            val = exp.resolvestr(makefile, variables, [name])
+            self._map[name] = prevflavor, prevsource, prevvalue + ' ' + val, None, None
+            return
+
+        newvalue = prevvalue + ' ' + value
+        try:
+            d = parser.Data.fromstring(newvalue, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
+            valueexp, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
+            err = None
+        except parser.SyntaxError, e:
+            valueexp = None
+            err = e
+
+        self._map[name] = prevflavor, prevsource, newvalue, valueexp, err
 
     def merge(self, other):
         assert isinstance(other, Variables)
@@ -270,7 +314,7 @@ class Variables(object):
             self.set(k, flavor, source, value)
 
     def __iter__(self):
-        for k, (flavor, source, value) in self._map.iteritems():
+        for k, (flavor, source, value, valueexp, expansionerr) in self._map.iteritems():
             yield k, flavor, source, value
 
     def __contains__(self, item):
@@ -454,23 +498,21 @@ class Target(object):
 
         indent = getindent(targetstack)
 
-        log.info(indent + "Trying to find implicit rule to make '%s'" % (self.target,))
+        _log.info("%sSearching for implicit rule to make '%s'", indent, self.target)
 
-        dir, s, file = pymake.util.strrpartition(self.target, '/')
+        dir, s, file = util.strrpartition(self.target, '/')
         dir = dir + s
 
         candidates = [] # list of PatternRuleInstance
 
-        hasmatch = pymake.util.any((r.hasspecificmatch(file) for r in makefile.implicitrules))
-        log.debug("Does any implicit rule match '%s'? %s" % (self.target, hasmatch))
+        hasmatch = util.any((r.hasspecificmatch(file) for r in makefile.implicitrules))
 
         for r in makefile.implicitrules:
             if r in rulestack:
-                log.info(indent + " %s: Avoiding implicit rule recursion" % (r.loc,))
+                _log.info("%s %s: Avoiding implicit rule recursion", indent, r.loc)
                 continue
 
             if not len(r.commands):
-                log.info(indent + " %s: Has no commands" % (r.loc,))
                 continue
 
             for ri in r.matchesfor(dir, file, hasmatch):
@@ -489,12 +531,12 @@ class Target(object):
 
             if depfailed is not None:
                 if r.doublecolon:
-                    log.info(indent + " Terminal rule at %s doesn't match: prerequisite '%s' not mentioned and doesn't exist." % (r.loc, depfailed))
+                    _log.info("%s Terminal rule at %s doesn't match: prerequisite '%s' not mentioned and doesn't exist.", indent, r.loc, depfailed)
                 else:
                     newcandidates.append(r)
                 continue
 
-            log.info(indent + "Found implicit rule at %s for target '%s'" % (r.loc, self.target))
+            _log.info("%sFound implicit rule at %s for target '%s'", indent, r.loc, self.target)
             self.rules.append(r)
             return
 
@@ -513,14 +555,14 @@ class Target(object):
                     break
 
             if depfailed is not None:
-                log.info(indent + " Rule at %s doesn't match: prerequisite '%s' could not be made." % (r.loc, depfailed))
+                _log.info("%s Rule at %s doesn't match: prerequisite '%s' could not be made.", indent, r.loc, depfailed)
                 continue
 
-            log.info(indent + "Found implicit rule at %s for target '%s'" % (r.loc, self.target))
+            _log.info("%sFound implicit rule at %s for target '%s'", indent, r.loc, self.target)
             self.rules.append(r)
             return
 
-        log.info(indent + "Couldn't find implicit rule to remake '%s'" % (self.target,))
+        _log.info("%sCouldn't find implicit rule to remake '%s'", indent, self.target)
 
     def ruleswithcommands(self):
         "The number of rules with commands"
@@ -552,7 +594,7 @@ class Target(object):
         
         indent = getindent(targetstack)
 
-        log.info(indent + "Considering target '%s'" % (self.target,))
+        _log.info("%sConsidering target '%s'", indent, self.target)
 
         self.resolvevpath(makefile)
 
@@ -572,14 +614,13 @@ class Target(object):
         # depend on it are always out of date. This is like .FORCE but more
         # compatible with other makes.
         # Otherwise, we don't know how to make it.
-        if not len(self.rules) and self.mtime is None and not pymake.util.any((len(rule.prerequisites) > 0
-                                                                               for rule in self.rules)):
+        if not len(self.rules) and self.mtime is None and not util.any((len(rule.prerequisites) > 0
+                                                                        for rule in self.rules)):
             if required:
                 raise ResolutionError("No rule to make target '%s' needed by %r" % (self.target,
                                                                                     targetstack))
 
         for r in self.rules:
-            log.info(indent + "Will remake target '%s' using rule at %s" % (self.target, r.loc))
             newrulestack = rulestack + [r]
             for d in r.prerequisites:
                 dt = makefile.gettarget(d)
@@ -604,7 +645,7 @@ class Target(object):
             stem = self.target[2:]
             f, s, e = makefile.variables.get('.LIBPATTERNS')
             if e is not None:
-                libpatterns = map(Pattern, splitwords(e.resolve(makefile, makefile.variables)))
+                libpatterns = [Pattern(stripdotslash(s)) for s in e.resolvestr(makefile, makefile.variables).split()]
                 if len(libpatterns):
                     searchdirs = ['']
                     searchdirs.extend(makefile.getvpath(self.target))
@@ -616,7 +657,7 @@ class Target(object):
                         libname = lp.resolve('', stem)
 
                         for dir in searchdirs:
-                            libpath = os.path.join(dir, libname)
+                            libpath = os.path.join(dir, libname).replace('\\', '/')
                             fspath = os.path.join(makefile.workdir, libpath)
                             mtime = getmtime(fspath)
                             if mtime is not None:
@@ -630,11 +671,11 @@ class Target(object):
 
         search = [self.target]
         if not os.path.isabs(self.target):
-            search += [os.path.join(dir, self.target)
+            search += [os.path.join(dir, self.target).replace('\\', '/')
                        for dir in makefile.getvpath(self.target)]
 
         for t in search:
-            fspath = os.path.join(makefile.workdir, t)
+            fspath = os.path.join(makefile.workdir, t).replace('\\', '/')
             mtime = getmtime(fspath)
             if mtime is not None:
                 self.vpathtarget = t
@@ -655,8 +696,6 @@ class Target(object):
         self.vpathtarget = self.target
 
     def _notifyerror(self, makefile, e):
-        log.debug("Making target '%s' failed with error %s" % (self.target, e))
-
         if self._state == MAKESTATE_FINISHED:
             # multiple callbacks failed. The first one already finished us, so we ignore this one
             return
@@ -668,8 +707,6 @@ class Target(object):
         del self._callbacks 
 
     def _notifysuccess(self, makefile, didanything):
-        log.debug("Making target '%s' succeeded" % (self.target,))
-
         self._state = MAKESTATE_FINISHED
         self._makeerror = None
         self._didanything = didanything
@@ -696,20 +733,16 @@ class Target(object):
         """
         if self._state == MAKESTATE_FINISHED:
             if self._makeerror is not None:
-                log.debug("Already made target '%s', got error %s" % (self.target, self._makeerror))
-                cb(error=self._makeerror)
+                cb(error=self._makeerror, didanything=False) #XXX?
             else:
-                log.debug("Already made target '%s'" % (self.target,))
                 cb(error=None, didanything=self._didanything)
             return
             
         if self._state == MAKESTATE_WORKING:
-            log.debug("Already making target '%s', adding callback. targetstack %r" % (self.target, targetstack))
             self._callbacks.append(cb)
             return
 
         assert self._state == MAKESTATE_NONE
-        log.debug("Starting to make target '%s', targetstack %r" % (self.target, targetstack))
 
         self._state = MAKESTATE_WORKING
         self._callbacks = [cb]
@@ -717,7 +750,7 @@ class Target(object):
         indent = getindent(targetstack)
 
         # this object exists solely as a container to subvert python's read-only closures
-        o = pymake.util.makeobject(('unmadedeps', 'didanything', 'error'))
+        o = util.makeobject(('unmadedeps', 'didanything', 'error'))
 
         def iterdeps():
             for r, deps in _resolvedrules:
@@ -733,10 +766,10 @@ class Target(object):
 
             if o.error is not None:
                 notifyfinished()
-
-            o.unmadedeps += 1
-            d.make(makefile, targetstack, [], cb=depfinished)
-            makefile.context.defer(startdep)
+            else:
+                o.unmadedeps += 1
+                d.make(makefile, targetstack, [], cb=depfinished)
+                makefile.context.defer(startdep)
 
         def notifyfinished():
             o.unmadedeps -= 1
@@ -770,18 +803,18 @@ class Target(object):
                     remake = False
                     if len(deps) == 0:
                         if avoidremakeloop:
-                            log.info(indent + "Not remaking %s using rule at %s because it would introduce an infinite loop." % (self.target, r.loc))
+                            _log.info("%sNot remaking %s using rule at %s because it would introduce an infinite loop.", indent, self.target, r.loc)
                         else:
-                            log.info(indent + "Remaking %s using rule at %s because there are no prerequisites listed for a double-colon rule." % (self.target, r.loc))
+                            _log.info("%sRemaking %s using rule at %s because there are no prerequisites listed for a double-colon rule.", indent, self.target, r.loc)
                             remake = True
                     else:
                         if self.mtime is None:
-                            log.info(indent + "Remaking %s using rule at %s because it doesn't exist or is a forced target" % (self.target, r.loc))
+                            _log.info("%sRemaking %s using rule at %s because it doesn't exist or is a forced target", indent, self.target, r.loc)
                             remake = True
                         else:
                             for d in deps:
                                 if mtimeislater(d.mtime, self.mtime):
-                                    log.info(indent + "Remaking %s using rule at %s because %s is newer." % (self.target, r.loc, d.target))
+                                    _log.info("%sRemaking %s using rule at %s because %s is newer.", indent, self.target, r.loc, d.target)
                                     remake = True
                                     break
                     if remake:
@@ -791,7 +824,7 @@ class Target(object):
                 commandrule = None
                 remake = False
                 if self.mtime is None:
-                    log.info(indent + "Remaking %s because it doesn't exist or is a forced target" % (self.target,))
+                    _log.info("%sRemaking %s because it doesn't exist or is a forced target", indent, self.target)
                     remake = True
 
                 for r, deps in _resolvedrules:
@@ -802,7 +835,7 @@ class Target(object):
                     if not remake:
                         for d in deps:
                             if mtimeislater(d.mtime, self.mtime):
-                                log.info(indent + "Remaking %s because %s is newer" % (self.target, d.target))
+                                _log.info("%sRemaking %s because %s is newer", indent, self.target, d.target)
                                 remake = True
 
                 if remake:
@@ -827,7 +860,6 @@ class Target(object):
             assert self.vpathtarget is not None, "Target was never resolved!"
 
             _resolvedrules = [(r, [makefile.gettarget(p) for p in r.prerequisites]) for r in self.rules]
-            log.debug("resolvedrules for %r: %r" % (self.target, _resolvedrules))
 
             targetstack = targetstack + [self.target]
 
@@ -838,18 +870,18 @@ class Target(object):
             depiterator = iterdeps()
             startdep()
 
-        except pymake.util.MakeError, e:
+        except util.MakeError, e:
             self._notifyerror(makefile, e)
 
 def dirpart(p):
-    d, s, f = pymake.util.strrpartition(p, '/')
+    d, s, f = util.strrpartition(p, '/')
     if d == '':
         return '.'
 
     return d
 
 def filepart(p):
-    d, s, f = pymake.util.strrpartition(p, '/')
+    d, s, f = util.strrpartition(p, '/')
     return f
 
 def setautomatic(v, name, plist):
@@ -902,23 +934,9 @@ def findmodifiers(command):
     isRecursive = False
     ignoreErrors = False
 
-    while len(command):
-        c = command[0]
-        if c == '@' and not isHidden:
-            command = command[1:]
-            isHidden = True
-        elif c == '+' and not isRecursive:
-            command = command[1:]
-            isRecursive = True
-        elif c == '-' and not ignoreErrors:
-            command = command[1:]
-            ignoreErrors = True
-        elif c.isspace():
-            command = command[1:]
-        else:
-            break
-
-    return command, isHidden, isRecursive, ignoreErrors
+    realcommand = command.lstrip(' \t\n@+-')
+    modset = set(command[:-len(realcommand)])
+    return realcommand, '@' in modset, '+' in modset, '-' in modset
 
 class CommandWrapper(object):
     def __init__(self, cline, ignoreErrors, loc, context, **kwargs):
@@ -936,7 +954,7 @@ class CommandWrapper(object):
 
     def __call__(self, cb):
         self.usercb = cb
-        pymake.process.call(self.cline, loc=self.loc, cb=self._cb, context=self.context, **self.kwargs)
+        process.call(self.cline, loc=self.loc, cb=self._cb, context=self.context, **self.kwargs)
 
 def getcommandsforrule(rule, target, makefile, prerequisites, stem):
     v = Variables(parent=target.variables)
@@ -947,7 +965,7 @@ def getcommandsforrule(rule, target, makefile, prerequisites, stem):
     env = makefile.getsubenvironment(v)
 
     for c in rule.commands:
-        cstring = c.resolve(makefile, v)
+        cstring = c.resolvestr(makefile, v)
         for cline in splitcommand(cstring):
             cline, isHidden, isRecursive, ignoreErrors = findmodifiers(cline)
             if isHidden:
@@ -1024,7 +1042,7 @@ class PatternRule(object):
         self.commands.append(c)
 
     def ismatchany(self):
-        return pymake.util.any((t.ismatchany() for t in self.targetpatterns))
+        return util.any((t.ismatchany() for t in self.targetpatterns))
 
     def hasspecificmatch(self, file):
         for p in self.targetpatterns:
@@ -1084,7 +1102,7 @@ class Makefile(object):
         workdir = os.path.realpath(workdir)
         self.workdir = workdir
         self.variables.set('CURDIR', Variables.FLAVOR_SIMPLE,
-                           Variables.SOURCE_AUTOMATIC, workdir)
+                           Variables.SOURCE_AUTOMATIC, workdir.replace('\\','/'))
 
         # the list of included makefiles, whether or not they existed
         self.included = []
@@ -1164,14 +1182,14 @@ class Makefile(object):
         self.parsingfinished = True
 
         flavor, source, value = self.variables.get('GPATH')
-        if value is not None and value.resolve(self, self.variables, ['GPATH']).strip() != '':
+        if value is not None and value.resolvestr(self, self.variables, ['GPATH']).strip() != '':
             raise DataError('GPATH was set: pymake does not support GPATH semantics')
 
         flavor, source, value = self.variables.get('VPATH')
         if value is None:
             self._vpath = []
         else:
-            self._vpath = filter(lambda e: e != '', re.split('[:\s]+', value.resolve(self, self.variables, ['VPATH'])))
+            self._vpath = filter(lambda e: e != '', re.split('[:\s]+', value.resolvestr(self, self.variables, ['VPATH'])))
 
         targets = list(self._targets.itervalues())
         for t in targets:
@@ -1188,7 +1206,7 @@ class Makefile(object):
 
         fspath = os.path.join(self.workdir, path)
         if os.path.exists(fspath):
-            stmts = pymake.parser.parsefile(fspath)
+            stmts = parser.parsefile(fspath)
             self.variables.append('MAKEFILE_LIST', Variables.SOURCE_AUTOMATIC, path, None, self)
             stmts.execute(self)
             self.gettarget(path).explicit = True
@@ -1199,21 +1217,17 @@ class Makefile(object):
         """
         Add a directory to the vpath search for the given pattern.
         """
-        log.info("Adding vpath directive: pattern '%s' directories %r" % (pattern, dirs))
         self._patternvpaths.append((pattern, dirs))
 
     def clearvpath(self, pattern):
         """
         Clear vpaths for the given pattern.
         """
-        log.info("Clearing vpath directives for pattern '%s'" % (pattern,))
-
         self._patternvpaths = [(p, dirs)
                                for p, dirs in self._patternvpaths
                                if not p.match(pattern)]
 
     def clearallvpaths(self):
-        log.info("Clearing all vpath directives")
         self._patternvpaths = []
 
     def getvpath(self, target):
@@ -1227,8 +1241,8 @@ class Makefile(object):
     def remakemakefiles(self, cb):
         reparse = False
 
-        o = pymake.util.makeobject(('remadecount',),
-                                   remadecount = 0)
+        o = util.makeobject(('remadecount',),
+                            remadecount = 0)
 
         def remakecb(error, didanything):
             if error is not None:
@@ -1263,14 +1277,14 @@ class Makefile(object):
             if val is None:
                 strval = ''
             else:
-                strval = val.resolve(self, variables, [vname])
+                strval = val.resolvestr(self, variables, [vname])
             env[vname] = strval
 
         makeflags = ''
 
         flavor, source, val = variables.get('MAKEFLAGS')
         if val is not None:
-            flagsval = val.resolve(self, variables, ['MAKEFLAGS'])
+            flagsval = val.resolvestr(self, variables, ['MAKEFLAGS'])
             if flagsval != '':
                 makeflags = flagsval
 

@@ -3,21 +3,25 @@ Skipping shell invocations is good, when possible. This wrapper around subproces
 parsing command lines into argv and making sure that no shell magic is being used.
 """
 
-import subprocess, shlex, re, logging, sys, traceback, os, util
-import command
+import subprocess, shlex, re, logging, sys, traceback, os
+import command, util
+if sys.platform=='win32':
+    import win32process
 
 _log = logging.getLogger('pymake.process')
 
-blacklist = re.compile(r'[=\\$><;*?[{~`|&]')
+_blacklist = re.compile(r'[=\\$><;*?[{~`|&]')
 def clinetoargv(cline):
     """
     If this command line can safely skip the shell, return an argv array.
+    @returns argv, badchar
     """
 
-    if blacklist.search(cline) is not None:
-        return None
+    m = _blacklist.search(cline)
+    if m is not None:
+        return None, m.group(0)
 
-    return shlex.split(cline, comments=True)
+    return shlex.split(cline, comments=True), None
 
 shellwords = (':', '.', 'break', 'cd', 'continue', 'exec', 'exit', 'export',
               'getopts', 'hash', 'pwd', 'readonly', 'return', 'shift', 
@@ -28,10 +32,24 @@ shellwords = (':', '.', 'break', 'cd', 'continue', 'exec', 'exit', 'export',
               'ulimit', 'unalias', 'set')
 
 def call(cline, env, cwd, loc, cb, context, echo):
-    argv = clinetoargv(cline)
-    if argv is None or (len(argv) and argv[0] in shellwords):
-        _log.debug("%s: Running command through shell because of shell metacharacters" % (loc,))
-        context.call(cline, shell=True, env=env, cwd=cwd, cb=cb, echo=echo)
+    #TODO: call this once up-front somewhere and save the result?
+    shell, msys = util.checkmsyscompat()
+
+    shellreason = None
+    if msys and cline.startswith('/'):
+        shellreason = "command starts with /"
+    else:
+        argv, badchar = clinetoargv(cline)
+        if argv is None:
+            shellreason = "command contains shell-special character '%s'" % (badchar,)
+        elif len(argv) and argv[0] in shellwords:
+            shellreason = "command starts with shell primitive '%s'" % (argv[0],)
+
+    if shellreason is not None:
+        _log.debug("%s: using shell: %s: '%s'", loc, shellreason, cline)
+        if msys:
+            cline = [shell, "-c", cline]
+        context.call(cline, shell=not msys, env=env, cwd=cwd, cb=cb, echo=echo)
         return
 
     if not len(argv):
@@ -42,12 +60,17 @@ def call(cline, env, cwd, loc, cb, context, echo):
         command.main(argv[1:], env, cwd, context, cb)
         return
 
-    if argv[0:2] == [sys.executable, command.makepypath]:
+    if argv[0:2] == [sys.executable.replace('\\', '/'),
+                     command.makepypath.replace('\\', '/')]:
         command.main(argv[2:], env, cwd, context, cb)
         return
 
-    _log.debug("%s: skipping shell, no metacharacters found" % (loc,))
-    context.call(argv, shell=False, env=env, cwd=cwd, cb=cb, echo=echo)
+    if argv[0].find('/') != -1:
+        executable = os.path.join(cwd, argv[0])
+    else:
+        executable = None
+
+    context.call(argv, executable=executable, shell=False, env=env, cwd=cwd, cb=cb, echo=echo)
 
 def statustoresult(status):
     """
@@ -86,32 +109,53 @@ class ParallelContext(object):
     def run(self):
         while len(self.pending) and len(self.running) < self.jcount:
             cb, args, kwargs = self.pending.pop(0)
-            _log.debug("Running callback %r with args %r kwargs %r" % (cb, args, kwargs))
             cb(*args, **kwargs)
 
     def defer(self, cb, *args, **kwargs):
         self.pending.append((cb, args, kwargs))
 
-    def _docall(self, argv, shell, env, cwd, cb, echo):
+    def _docall(self, argv, executable, shell, env, cwd, cb, echo):
             if echo is not None:
                 print echo
-            p = subprocess.Popen(argv, shell=shell, env=env, cwd=cwd)
+            try:
+                p = subprocess.Popen(argv, executable=executable, shell=shell, env=env, cwd=cwd)
+            except OSError, e:
+                print >>sys.stderr, e
+                cb(-127)
+                return
+
             self.running.append((p, cb))
 
-    def call(self, argv, shell, env, cwd, cb, echo):
+    def call(self, argv, shell, env, cwd, cb, echo, executable=None):
         """
         Asynchronously call the process
         """
 
-        self.defer(self._docall, argv, shell, env, cwd, cb, echo)
+        self.defer(self._docall, argv, executable, shell, env, cwd, cb, echo)
+
+    if sys.platform == 'win32':
+        @staticmethod
+        def _waitany():
+            return win32process.WaitForAnyProcess([p for c in ParallelContext._allcontexts for p, cb in c.running])
+
+        @staticmethod
+        def _comparepid(pid, process):
+            return pid == process
+
+    else:
+        @staticmethod
+        def _waitany():
+            return os.waitpid(-1, 0)
+
+        @staticmethod
+        def _comparepid(pid, process):
+            return pid == process.pid
 
     @staticmethod
     def spin():
         """
         Spin the 'event loop', and never return.
         """
-
-        _log.debug("Spinning the event loop")
 
         while True:
             clist = list(ParallelContext._allcontexts)
@@ -121,14 +165,14 @@ class ParallelContext(object):
             dowait = util.any((len(c.running) for c in ParallelContext._allcontexts))
 
             if dowait:
-                pid, status = os.waitpid(-1, 0)
+                pid, status = ParallelContext._waitany()
                 result = statustoresult(status)
 
                 found = False
                 for c in ParallelContext._allcontexts:
                     for i in xrange(0, len(c.running)):
                         p, cb = c.running[i]
-                        if p.pid == pid:
+                        if ParallelContext._comparepid(pid, p):
                             del c.running[i]
                             cb(result)
                             found = True

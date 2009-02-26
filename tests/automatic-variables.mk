@@ -1,13 +1,14 @@
 $(shell \
-mkdir -p src/subd subd; \
+mkdir -p src/subd; \
+mkdir subd; \
 touch dummy; \
-sleep 1; \
+sleep 2; \
 touch subd/test.out src/subd/test.in2; \
-sleep 1; \
+sleep 2; \
 touch subd/test.out2 src/subd/test.in; \
-sleep 1; \
+sleep 2; \
 touch subd/host_test.out subd/host_test.out2; \
-sleep 1; \
+sleep 2; \
 touch host_prog; \
 )
 
@@ -44,6 +45,7 @@ prog: subd/test.out subd/test.out2
 	test "$<" = "subd/test.out"
 	test "$^" = "subd/test.out subd/test.out2" # ^
 	test "$?" = "subd/test.out subd/test.out2" # ?
+	cat $<
 	test "$$(cat $<)" = "remade"
 	test "$$(cat $(word 2,$^))" = ""
 

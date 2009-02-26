@@ -3,7 +3,7 @@ VPATH = foo bar
 $(shell \
 mkdir foo; touch foo/tfile1; \
 mkdir bar; touch bar/tfile2 bar/tfile3 bar/test.objtest; \
-sleep 1; \
+sleep 2; \
 touch bar/test.source; \
 )
 

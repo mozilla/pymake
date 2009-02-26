@@ -130,7 +130,7 @@ endef\n""",
 
     def runSingle(self, ifunc, idata, expected):
         fd = StringIO(idata)
-        lineiter = pymake.parser.iterlines(fd)
+        lineiter = enumerate(fd)
 
         d = pymake.parser.DynamicData(lineiter, 'PlainIterTest-data')
         d.readline()

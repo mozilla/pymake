@@ -10,7 +10,7 @@ class SplitWordsTest(unittest.TestCase):
 
     def runTest(self):
         for s, e in self.testdata:
-            w = pymake.data.splitwords(s)
+            w = s.split()
             self.assertEqual(w, e, 'splitwords(%r)' % (s,))
 
 class GetPatSubstTest(unittest.TestCase):
@@ -26,7 +26,7 @@ class GetPatSubstTest(unittest.TestCase):
 
     def runTest(self):
         for s, r, d, e in self.testdata:
-            words = pymake.data.splitwords(d)
+            words = d.split()
             p = pymake.data.Pattern(s)
             a = ' '.join((p.subst(r, word, False)
                           for word in words))
