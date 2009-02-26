@@ -182,7 +182,7 @@ class Variables(object):
     # SOURCE_IMPLICIT = 5
 
     def __init__(self, parent=None):
-        self._map = {} # vname -> flavor, source, valuestr, valueexp, expansionerror
+        self._map = {} # vname -> flavor, source, valuestr, valueexp
         self.parent = parent
 
     def readfromenvironment(self, env):
@@ -199,7 +199,12 @@ class Variables(object):
         it will be returned as an unexpanded string.
         """
         if name in self._map:
-            flavor, source, valuestr, valueexp, expansionerror = self._map[name]
+            flavor, source, valuestr, valueexp = self._map[name]
+            if expand and flavor != self.FLAVOR_SIMPLE and valueexp is None:
+                d = parser.Data.fromstring(valuestr, parserdata.Location("Expansion of variables '%s'" % (name,), 1, 0))
+                valueexp, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
+                self._map[name] = flavor, source, valuestr, valueexp
+
             if flavor == self.FLAVOR_APPEND:
                 if self.parent:
                     pflavor, psource, pvalue = self.parent.get(name, expand)
@@ -217,13 +222,6 @@ class Variables(object):
                     if not expand:
                         return pflavor, psource, pvalue + ' ' + valuestr
 
-                    if expansionerror is not None:
-                        raise expansionerror
-
-                    
-                    d = parser.Data.fromstring(valuestr, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
-                    appende, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
-
                     pvalue = pvalue.clone()
                     pvalue.append(' ')
                     pvalue.concat(valueexp)
@@ -234,9 +232,6 @@ class Variables(object):
                 return flavor, source, valuestr
 
             if flavor == self.FLAVOR_RECURSIVE:
-                if expansionerror is not None:
-                    raise expansionerror
-
                 val = valueexp
             else:
                 val = Expansion.fromstring(valuestr)
@@ -259,19 +254,7 @@ class Variables(object):
             _log.info("not setting variable '%s', set by higher-priority source to value '%s'" % (name, prevvalue))
             return
 
-        if flavor == self.FLAVOR_SIMPLE:
-            valueexp = None
-            expansionerror = None
-        else:
-            try:
-                d = parser.Data.fromstring(value, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
-                valueexp, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
-                expansionerror = None
-            except parser.SyntaxError, e:
-                valueexp = None
-                expansionerror = e
-
-        self._map[name] = (flavor, source, value, valueexp, expansionerror)
+        self._map[name] = flavor, source, value, None
 
     def append(self, name, source, value, variables, makefile):
         assert source in (self.SOURCE_OVERRIDE, self.SOURCE_MAKEFILE, self.SOURCE_AUTOMATIC)
@@ -286,34 +269,24 @@ class Variables(object):
                 return None, e
         
         if name not in self._map:
-            exp, err = expand()
-            self._map[name] = self.FLAVOR_APPEND, source, value, exp, err
+            self._map[name] = self.FLAVOR_APPEND, source, value, None
             return
 
-        prevflavor, prevsource, prevvalue, valueexp, err = self._map[name]
+        prevflavor, prevsource, prevvalue, valueexp = self._map[name]
         if source > prevsource:
             # TODO: log a warning?
             return
 
         if prevflavor == self.FLAVOR_SIMPLE:
-            exp, err = expand()
-            if err is not None:
-                raise err
+            d = parser.Data.fromstring(value, parserdata.Location("Expansion of variables '%s'" % (name,), 1, 0))
+            valueexp, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
 
-            val = exp.resolvestr(makefile, variables, [name])
-            self._map[name] = prevflavor, prevsource, prevvalue + ' ' + val, None, None
+            val = valueexp.resolvestr(makefile, variables, [name])
+            self._map[name] = prevflavor, prevsource, prevvalue + ' ' + val, None
             return
 
         newvalue = prevvalue + ' ' + value
-        try:
-            d = parser.Data.fromstring(newvalue, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
-            valueexp, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
-            err = None
-        except parser.SyntaxError, e:
-            valueexp = None
-            err = e
-
-        self._map[name] = prevflavor, prevsource, newvalue, valueexp, err
+        self._map[name] = prevflavor, prevsource, newvalue, None
 
     def merge(self, other):
         assert isinstance(other, Variables)
@@ -321,7 +294,7 @@ class Variables(object):
             self.set(k, flavor, source, value)
 
     def __iter__(self):
-        for k, (flavor, source, value, valueexp, expansionerr) in self._map.iteritems():
+        for k, (flavor, source, value, valueexp) in self._map.iteritems():
             yield k, flavor, source, value
 
     def __contains__(self, item):
