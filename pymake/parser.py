@@ -671,16 +671,24 @@ PARSESTATE_VARNAME = 2     # expanding a variable expansion.
 PARSESTATE_SUBSTFROM = 3   # expanding a variable expansion substitution "from" value
 PARSESTATE_SUBSTTO = 4     # expanding a variable expansion substitution "to" value
 
+PARSESTATE_PARENMATCH = 5
+
 class ParseStackFrame(object):
-    def __init__(self, parsestate, expansion, tokenlist, closebrace, **kwargs):
+    def __init__(self, parsestate, expansion, tokenlist, openbrace, closebrace, **kwargs):
         self.parsestate = parsestate
         self.expansion = expansion
         self.tokenlist = tokenlist
+        self.openbrace = openbrace
         self.closebrace = closebrace
         for key, value in kwargs.iteritems():
             setattr(self, key, value)
 
 _functiontokenlist = None
+
+_matchingbrace = {
+    '(': ')',
+    '{': '}',
+    }
 
 def parsemakesyntax(d, startat, stopon, iterfunc):
     """
@@ -712,7 +720,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
     stack = [
         ParseStackFrame(PARSESTATE_TOPLEVEL, data.Expansion(loc=d.getloc(startat)),
                         tokenlist=TokenList.get(stopon + ('$',)),
-                        stopon=stopon, closebrace=None)
+                        stopon=stopon, openbrace=None, closebrace=None)
     ]
 
     di = iterfunc(d, startat, stack[-1].tokenlist)
@@ -739,7 +747,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 stacktop.expansion.append('$')
                 offset = offset + 1
             elif c in ('(', '{'):
-                closebrace = c == '(' and ')' or '}'
+                closebrace = _matchingbrace[c]
 
                 # look forward for a function name
                 fname, offset = d.findtoken(offset + 1, _functiontokenlist, True)
@@ -748,25 +756,38 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                     e = data.Expansion()
                     fn.append(e)
                     if len(fn) == fn.maxargs:
-                        tokenlist = TokenList.get((closebrace, '$'))
+                        tokenlist = TokenList.get((c, closebrace, '$'))
                     else:
-                        tokenlist = TokenList.get((',', closebrace, '$'))
+                        tokenlist = TokenList.get((',', c, closebrace, '$'))
 
                     stack.append(ParseStackFrame(PARSESTATE_FUNCTION,
                                                  e, tokenlist, function=fn,
-                                                 closebrace=closebrace))
+                                                 openbrace=c, closebrace=closebrace))
                     di = iterfunc(d, offset, tokenlist)
                     continue
 
                 e = data.Expansion()
-                tokenlist = TokenList.get((':', closebrace, '$'))
-                stack.append(ParseStackFrame(PARSESTATE_VARNAME, e, tokenlist, closebrace=closebrace, loc=loc))
+                tokenlist = TokenList.get((':', c, closebrace, '$'))
+                stack.append(ParseStackFrame(PARSESTATE_VARNAME, e, tokenlist,
+                                             openbrace=c, closebrace=closebrace, loc=loc))
                 di = iterfunc(d, offset, tokenlist)
                 continue
             else:
                 e = data.Expansion.fromstring(c)
                 stacktop.expansion.append(functions.VariableRef(loc, e))
                 offset += 1
+        elif token in ('(', '{'):
+            assert token == stacktop.openbrace
+
+            stacktop.expansion.append(token)
+            stack.append(ParseStackFrame(PARSESTATE_PARENMATCH,
+                                         stacktop.expansion,
+                                         TokenList.get((token, stacktop.closebrace,)),
+                                         openbrace=token, closebrace=stacktop.closebrace, loc=d.getloc(tokenoffset)))
+        elif stacktop.parsestate == PARSESTATE_PARENMATCH:
+            assert token == stacktop.closebrace
+            stacktop.expansion.append(token)
+            stack.pop()
         elif stacktop.parsestate == PARSESTATE_TOPLEVEL:
             assert len(stack) == 1
             return stacktop.expansion, token, offset
@@ -776,7 +797,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 stacktop.function.append(stacktop.expansion)
 
                 if len(stacktop.function) == stacktop.function.maxargs:
-                    tokenlist = TokenList.get((stacktop.closebrace, '$'))
+                    tokenlist = TokenList.get((stacktop.openbrace, stacktop.closebrace, '$'))
                     stacktop.tokenlist = tokenlist
             elif token in (')', '}'):
                     stacktop.function.setup()
@@ -789,7 +810,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 stacktop.varname = stacktop.expansion
                 stacktop.parsestate = PARSESTATE_SUBSTFROM
                 stacktop.expansion = data.Expansion()
-                stacktop.tokenlist = TokenList.get(('=', stacktop.closebrace, '$'))
+                stacktop.tokenlist = TokenList.get(('=', stacktop.openbrace, stacktop.closebrace, '$'))
             elif token in (')', '}'):
                 stack.pop()
                 stack[-1].expansion.append(functions.VariableRef(stacktop.loc, stacktop.expansion))
@@ -800,7 +821,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 stacktop.substfrom = stacktop.expansion
                 stacktop.parsestate = PARSESTATE_SUBSTTO
                 stacktop.expansion = data.Expansion()
-                stacktop.tokenlist = TokenList.get((stacktop.closebrace, '$'))
+                stacktop.tokenlist = TokenList.get((stacktop.openbrace, stacktop.closebrace, '$'))
             elif token in (')', '}'):
                 # A substitution of the form $(VARNAME:.ee) is probably a mistake, but make
                 # parses it. Issue a warning. Combine the varname and substfrom expansions to
