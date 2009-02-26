@@ -139,7 +139,11 @@ class Expansion(object):
                     yield j
                     
     def resolvestr(self, makefile, variables, setting=[]):
-        return ''.join(self.resolve(makefile, variables, setting))
+        s = ''
+        for i in self.resolve(makefile, variables, setting):
+            if i != '':
+                s += i
+        return s
 
     def resolvesplit(self, makefile, variables, setting=[]):
         return util.itersplit(self.resolve(makefile, variables, setting))
