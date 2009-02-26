@@ -60,14 +60,16 @@ def _if_else(c, t, f):
         return t()
     return f()
 
-class Expansion(object):
+class Expansion(list):
     """
     A representation of expanded data, such as that for a recursively-expanded variable, a command, etc.
     """
 
+    __slots__ = ('loc',)
+
     def __init__(self, loc=None):
-        # Each element is either a string or a function
-        self._elements = [] # element, isfunc
+        # A list of (element, isfunc) tuples
+        # element is either a string or a function
         self.loc = loc
 
     @staticmethod
@@ -78,14 +80,19 @@ class Expansion(object):
 
     def clone(self):
         e = Expansion()
-        e._elements = list(self._elements)
+        e.extend(self)
         return e
 
     def _lastisstring(self):
-        return len(self._elements) and not self._elements[-1][1]
+        return len(self) and not self[-1][1]
 
     def _firstisstring(self):
-        return len(self._elements) and not self._elements[0][1]
+        return len(self) and not self[0][1]
+
+    def append(self, e):
+        raise NotImplementedError("Don't call me!")
+
+    _append = list.append
 
     def appendstr(self, s):
         assert isinstance(s, str)
@@ -93,39 +100,39 @@ class Expansion(object):
             return
 
         if self._lastisstring():
-            s = self._elements[-1][0] + s
-            self._elements[-1] = s, False
+            s = self[-1][0] + s
+            self[-1] = s, False
         else:
-            self._elements.append((s, False))
+            self._append((s, False))
 
     def appendfunc(self, func):
         assert isinstance(func, functions.Function)
-        self._elements.append((func, True))
+        self._append((func, True))
 
     def concat(self, o):
         """Concatenate the other expansion on to this one."""
         if o._firstisstring() and self._lastisstring():
-            mystr = self._elements[-1][0]
-            ostr = o._elements[0][0]
-            self._elements[-1] = mystr + ostr, False
-            self._elements.extend(o._elements[1:])
+            mystr = self[-1][0]
+            ostr = o[0][0]
+            self[-1] = mystr + ostr, False
+            self.extend(o[1:])
         else:
-            self._elements.extend(o._elements)
+            self.extend(o)
 
     def isempty(self):
-        return (not len(self._elements)) or self._elements[0] == ('', False)
+        return (not len(self)) or self[0] == ('', False)
 
     def lstrip(self):
         """Strip leading literal whitespace from this expansion."""
         if self._firstisstring():
-            s = self._elements[0][0].lstrip()
-            self._elements[0] = s, False
+            s = self[0][0].lstrip()
+            self[0] = s, False
 
     def rstrip(self):
         """Strip trailing literal whitespace from this expansion."""
         if self._lastisstring():
-            s = self._elements[-1][0].rstrip()
-            self._elements[-1] = s, False
+            s = self[-1][0].rstrip()
+            self[-1] = s, False
 
     def resolve(self, makefile, variables, setting=[]):
         """
@@ -140,7 +147,7 @@ class Expansion(object):
         assert isinstance(variables, Variables)
         assert isinstance(setting, list)
 
-        for e, isfunc in self._elements:
+        for e, isfunc in self:
             if isfunc:
                 it = e.resolve(makefile, variables, setting)
                 assert not isinstance(it, str)
@@ -164,11 +171,8 @@ class Expansion(object):
     def resolvesplit(self, makefile, variables, setting=[]):
         return util.itersplit(self.resolve(makefile, variables, setting))
 
-    def __len__(self):
-        return len(self._elements)
-
     def __repr__(self):
-        return "<Expansion with elements: %r>" % (self._elements,)
+        return "<Expansion with elements: %r>" % ([repr(e) for e, isfunc in self],)
 
 class Variables(object):
     """

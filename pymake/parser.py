@@ -179,8 +179,9 @@ def iterdata(d, offset, tokenlist):
         return
 
     s = tokenlist.simplere
+    datalen = len(d.data)
 
-    while offset < len(d.data):
+    while offset < datalen:
         m = s.search(d.data, pos=offset)
         if m is None:
             yield d.data[offset:], None, None, None
@@ -667,14 +668,16 @@ PARSESTATE_SUBSTTO = 4     # expanding a variable expansion substitution "to" va
 PARSESTATE_PARENMATCH = 5
 
 class ParseStackFrame(object):
-    def __init__(self, parsestate, expansion, tokenlist, openbrace, closebrace, **kwargs):
+    __slots__ = ('parsestate', 'expansion', 'tokenlist', 'openbrace', 'closebrace', 'function', 'loc', 'varname', 'substfrom')
+
+    def __init__(self, parsestate, expansion, tokenlist, openbrace, closebrace, function=None, loc=None):
         self.parsestate = parsestate
         self.expansion = expansion
         self.tokenlist = tokenlist
         self.openbrace = openbrace
         self.closebrace = closebrace
-        for key, value in kwargs.iteritems():
-            setattr(self, key, value)
+        self.function = function
+        self.loc = loc
 
 _functiontokenlist = None
 
@@ -713,7 +716,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
     stack = [
         ParseStackFrame(PARSESTATE_TOPLEVEL, data.Expansion(loc=d.getloc(startat)),
                         tokenlist=TokenList.get(stopon + ('$',)),
-                        stopon=stopon, openbrace=None, closebrace=None)
+                        openbrace=None, closebrace=None)
     ]
 
     di = iterfunc(d, startat, stack[-1].tokenlist)
