@@ -141,6 +141,9 @@ class Expansion(object):
     def resolvestr(self, makefile, variables, setting=[]):
         return ''.join(self.resolve(makefile, variables, setting))
 
+    def resolvesplit(self, makefile, variables, setting=[]):
+        return util.itersplit(self.resolve(makefile, variables, setting))
+
     def __len__(self):
         return len(self._elements)
 
@@ -645,7 +648,7 @@ class Target(object):
             stem = self.target[2:]
             f, s, e = makefile.variables.get('.LIBPATTERNS')
             if e is not None:
-                libpatterns = [Pattern(stripdotslash(s)) for s in e.resolvestr(makefile, makefile.variables).split()]
+                libpatterns = [Pattern(stripdotslash(s)) for s in e.resolvesplit(makefile, makefile.variables)]
                 if len(libpatterns):
                     searchdirs = ['']
                     searchdirs.extend(makefile.getvpath(self.target))

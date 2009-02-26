@@ -115,7 +115,7 @@ class Rule(Statement):
         self.doublecolon = doublecolon
 
     def execute(self, makefile, context):
-        atargets = data.stripdotslashes(self.targetexp.resolvestr(makefile, makefile.variables).split())
+        atargets = data.stripdotslashes(self.targetexp.resolvesplit(makefile, makefile.variables))
         targets = [data.Pattern(p) for p in _expandwildcards(makefile, atargets)]
 
         if not len(targets):
@@ -127,7 +127,7 @@ class Rule(Statement):
             raise data.DataError("Mixed implicit and normal rule", self.targetexp.loc)
         ispattern, = ispatterns
 
-        deps = [p for p in _expandwildcards(makefile, data.stripdotslashes(self.depexp.resolvestr(makefile, makefile.variables).split()))]
+        deps = [p for p in _expandwildcards(makefile, data.stripdotslashes(self.depexp.resolvesplit(makefile, makefile.variables)))]
         if ispattern:
             rule = data.PatternRule(targets, map(data.Pattern, deps), self.doublecolon, loc=self.targetexp.loc)
             makefile.appendimplicitrule(rule)
@@ -154,18 +154,18 @@ class StaticPatternRule(Statement):
         self.doublecolon = doublecolon
 
     def execute(self, makefile, context):
-        targets = list(_expandwildcards(makefile, data.stripdotslashes(self.targetexp.resolvestr(makefile, makefile.variables).split())))
+        targets = list(_expandwildcards(makefile, data.stripdotslashes(self.targetexp.resolvesplit(makefile, makefile.variables))))
 
         if not len(targets):
             context.currule = DummyRule()
             return
 
-        patterns = list(data.stripdotslashes(self.patternexp.resolvestr(makefile, makefile.variables).split()))
+        patterns = list(data.stripdotslashes(self.patternexp.resolvesplit(makefile, makefile.variables)))
         if len(patterns) != 1:
             raise data.DataError("Static pattern rules must have a single pattern", self.patternexp.loc)
         pattern = data.Pattern(patterns[0])
 
-        deps = [data.Pattern(p) for p in _expandwildcards(makefile, data.stripdotslashes(self.depexp.resolvestr(makefile, makefile.variables).split()))]
+        deps = [data.Pattern(p) for p in _expandwildcards(makefile, data.stripdotslashes(self.depexp.resolvesplit(makefile, makefile.variables)))]
 
         rule = data.PatternRule([pattern], deps, self.doublecolon, loc=self.targetexp.loc)
 
@@ -221,7 +221,7 @@ class SetVariable(Statement):
         else:
             setvariables = []
 
-            targets = [data.Pattern(t) for t in data.stripdotslashes(self.targetexp.resolvestr(makefile, makefile.variables).split())]
+            targets = [data.Pattern(t) for t in data.stripdotslashes(self.targetexp.resolvesplit(makefile, makefile.variables))]
             for t in targets:
                 if t.ispattern():
                     setvariables.append(makefile.getpatternvariables(t))
@@ -357,7 +357,7 @@ class Include(Statement):
         self.required = required
 
     def execute(self, makefile, context):
-        files = self.exp.resolvestr(makefile, makefile.variables).split()
+        files = self.exp.resolvesplit(makefile, makefile.variables)
         for f in files:
             makefile.include(f, self.required, loc=self.exp.loc)
 
@@ -370,7 +370,7 @@ class VPathDirective(Statement):
         self.exp = exp
 
     def execute(self, makefile, context):
-        words = list(data.stripdotslashes(self.exp.resolvestr(makefile, makefile.variables).split()))
+        words = list(data.stripdotslashes(self.exp.resolvesplit(makefile, makefile.variables)))
         if len(words) == 0:
             makefile.clearallvpaths()
         else:
@@ -400,7 +400,7 @@ class ExportDirective(Statement):
         if self.single:
             vlist = [self.exp.resolvestr(makefile, makefile.variables)]
         else:
-            vlist = self.exp.resolvestr(makefile, makefile.variables).split()
+            vlist = list(self.exp.resolvesplit(makefile, makefile.variables))
             if not len(vlist):
                 raise data.DataError("Exporting all variables is not supported", self.exp.loc)
 

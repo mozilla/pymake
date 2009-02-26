@@ -21,6 +21,51 @@ class MakeError(Exception):
 
         return "%s%s" % (locstr, self.message)
 
+def itersplit(it):
+    """
+    Given an iterator that returns strings, yield words as if string.split() had been called on the concatenation
+    of the strings.
+    """
+
+    curword = None
+    for s in it:
+        if not len(s):
+            continue
+
+        initws = s[0].isspace()
+        trailws = s[-1].isspace()
+
+        words = s.split()
+        if curword is not None:
+            if initws:
+                yield curword
+            else:
+                words[0] = curword + words[0]
+
+        if trailws:
+            curword = None
+        else:
+            curword = words.pop()
+
+        for w in words:
+            yield w
+
+    if curword is not None:
+        yield curword
+
+def joiniter(it, j=' '):
+    """
+    Given an iterator that returns strings, yield the words with j inbetween each.
+    """
+    it = iter(it)
+    for i in it:
+        yield i
+        break
+
+    for i in it:
+        yield j
+        yield i
+
 def checkmsyscompat():
     """For msys compatibility on windows, honor the SHELL environment variable,
     and if $MSYSTEM == MINGW32, run commands through $SHELL -c instead of
