@@ -162,13 +162,29 @@ class ParallelContext(object):
             for c in clist:
                 c.run()
 
+            # In python 2.4, subprocess instances wait on child processes under the hood when they are created... this
+            # unfortunate behavior means that before using os.waitpid, we need to check the status using .poll()
+            # see http://bytes.com/groups/python/675403-os-wait-losing-child
+            found = False
+            for c in clist:
+                for i in xrange(0, len(c.running)):
+                    p, cb = c.running[i]
+                    result = p.poll()
+                    if result != None:
+                        del c.running[i]
+                        cb(result)
+                        found = True
+                        break
+
+                if found: break
+            if found: continue
+
             dowait = util.any((len(c.running) for c in ParallelContext._allcontexts))
 
             if dowait:
                 pid, status = ParallelContext._waitany()
                 result = statustoresult(status)
 
-                found = False
                 for c in ParallelContext._allcontexts:
                     for i in xrange(0, len(c.running)):
                         p, cb = c.running[i]
