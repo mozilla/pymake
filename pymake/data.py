@@ -60,6 +60,47 @@ def _if_else(c, t, f):
         return t()
     return f()
 
+class StringExpansion(object):
+    __slots__ = ('s', 't')
+    loc = None
+    
+    def __init__(self, s):
+        assert isinstance(s, str)
+        self.s = s
+        self.t = tuple(s)
+
+    def lstrip(self):
+        self.s = self.s.lstrip()
+
+    def rstrip(self):
+        self.s = self.s.rstrip()
+
+    def _firstisstring(self):
+        return True
+
+    def _firststring(self):
+        return self.s
+
+    def _afterfirst(self):
+        return ()
+
+    def isempty(self):
+        return self.s == ''
+
+    def resolve(self, i, j, k=None):
+        return self.t
+
+    def resolvestr(self, i, j, k=None):
+        return self.s
+
+    def resolvesplit(self, i, j, k=None):
+        return self.s.split()
+
+    def clone(self):
+        e = Expansion()
+        e.appendstr(self.s)
+        return e
+
 class Expansion(list):
     """
     A representation of expanded data, such as that for a recursively-expanded variable, a command, etc.
@@ -74,20 +115,27 @@ class Expansion(list):
 
     @staticmethod
     def fromstring(s):
-        e = Expansion()
-        e.appendstr(s)
-        return e
+        return StringExpansion(s)
 
     def clone(self):
         e = Expansion()
         e.extend(self)
         return e
 
+    def _firstisstring(self):
+        return len(self) and not self[0][1]
+
+    def _firststring(self):
+        return self[0][0]
+
+    def _afterfirst(self):
+        return self[1:]
+
     def _lastisstring(self):
         return len(self) and not self[-1][1]
 
-    def _firstisstring(self):
-        return len(self) and not self[0][1]
+    def _laststring(self):
+        return self[-1][0]
 
     def append(self, e):
         raise NotImplementedError("Don't call me!")
@@ -112,10 +160,8 @@ class Expansion(list):
     def concat(self, o):
         """Concatenate the other expansion on to this one."""
         if o._firstisstring() and self._lastisstring():
-            mystr = self[-1][0]
-            ostr = o[0][0]
-            self[-1] = mystr + ostr, False
-            self.extend(o[1:])
+            self[-1] = self._laststring() + o._firststring(), False
+            self.extend(o._afterfirst())
         else:
             self.extend(o)
 
@@ -133,6 +179,15 @@ class Expansion(list):
         if self._lastisstring():
             s = self[-1][0].rstrip()
             self[-1] = s, False
+
+    def finish(self):
+        if len(self) == 0:
+            return StringExpansion('')
+
+        if len(self) == 1 and not self[0][1]:
+            return StringExpansion(self[0][0])
+
+        return self
 
     def resolve(self, makefile, variables, setting=[]):
         """
@@ -172,7 +227,7 @@ class Expansion(list):
         return util.itersplit(self.resolve(makefile, variables, setting))
 
     def __repr__(self):
-        return "<Expansion with elements: %r>" % ([repr(e) for e, isfunc in self],)
+        return "<Expansion with elements: %r>" % ([e for e, isfunc in self],)
 
 class Variables(object):
     """
@@ -384,9 +439,12 @@ class Pattern(object):
                 return word
             return None
 
-        l1 = len(self.data[0])
-        l2 = len(self.data[1])
-        if len(word) >= l1 + l2 and word.startswith(self.data[0]) and word.endswith(self.data[1]):
+        if word.startswith(self.data[0]) and word.endswith(self.data[1]):
+            l1 = len(self.data[0])
+            l2 = len(self.data[1])
+            if len(word) < l1 + l2:
+                return None
+
             if l2 == 0:
                 return word[l1:]
             return word[l1:-l2]
@@ -979,7 +1037,7 @@ class Rule(object):
         self.loc = loc
 
     def addcommand(self, c):
-        assert isinstance(c, Expansion)
+        assert isinstance(c, (Expansion, StringExpansion))
         self.commands.append(c)
 
     def getcommands(self, target, makefile):
@@ -1029,7 +1087,7 @@ class PatternRule(object):
         self.commands = []
 
     def addcommand(self, c):
-        assert isinstance(c, Expansion)
+        assert isinstance(c, (Expansion, StringExpansion))
         self.commands.append(c)
 
     def ismatchany(self):

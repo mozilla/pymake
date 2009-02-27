@@ -38,7 +38,7 @@ class Function(object):
         assert self.maxargs == 0 or argc <= self.maxargs, "Parser screwed up, gave us too many args"
 
     def append(self, arg):
-        assert isinstance(arg, data.Expansion)
+        assert isinstance(arg, (data.Expansion, data.StringExpansion))
         self._arguments.append(arg)
 
     def __len__(self):
@@ -47,7 +47,7 @@ class Function(object):
 class VariableRef(Function):
     def __init__(self, loc, vname):
         self.loc = loc
-        assert isinstance(vname, data.Expansion)
+        assert isinstance(vname, (data.Expansion, data.StringExpansion))
         self.vname = vname
         
     def setup(self):
@@ -384,6 +384,7 @@ class IfFunction(Function):
 
     def resolve(self, makefile, variables, setting):
         condition = self._arguments[0].resolvestr(makefile, variables, setting)
+
         if len(condition):
             return self._arguments[1].resolve(makefile, variables, setting)
 
@@ -459,6 +460,7 @@ class CallFunction(Function):
             v.set(str(i), data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_AUTOMATIC, param)
 
         flavor, source, e = variables.get(vname)
+
         if e is None:
             return ()
 

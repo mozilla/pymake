@@ -750,8 +750,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 if fname is not None:
                     fn = functions.functionmap[fname](loc)
                     e = data.Expansion()
-                    fn.append(e)
-                    if len(fn) == fn.maxargs:
+                    if len(fn) + 1 == fn.maxargs:
                         tokenlist = TokenList.get((c, closebrace, '$'))
                     else:
                         tokenlist = TokenList.get((',', c, closebrace, '$'))
@@ -786,19 +785,20 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
             stack.pop()
         elif stacktop.parsestate == PARSESTATE_TOPLEVEL:
             assert len(stack) == 1
-            return stacktop.expansion, token, offset
+            return stacktop.expansion.finish(), token, offset
         elif stacktop.parsestate == PARSESTATE_FUNCTION:
             if token == ',':
-                stacktop.expansion = data.Expansion()
-                stacktop.function.append(stacktop.expansion)
+                stacktop.function.append(stacktop.expansion.finish())
 
-                if len(stacktop.function) == stacktop.function.maxargs:
+                stacktop.expansion = data.Expansion()
+                if len(stacktop.function) + 1 == stacktop.function.maxargs:
                     tokenlist = TokenList.get((stacktop.openbrace, stacktop.closebrace, '$'))
                     stacktop.tokenlist = tokenlist
             elif token in (')', '}'):
-                    stacktop.function.setup()
-                    stack.pop()
-                    stack[-1].expansion.appendfunc(stacktop.function)
+                stacktop.function.append(stacktop.expansion.finish())
+                stacktop.function.setup()
+                stack.pop()
+                stack[-1].expansion.appendfunc(stacktop.function)
             else:
                 assert False, "Not reached, PARSESTATE_FUNCTION"
         elif stacktop.parsestate == PARSESTATE_VARNAME:
@@ -809,7 +809,7 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 stacktop.tokenlist = TokenList.get(('=', stacktop.openbrace, stacktop.closebrace, '$'))
             elif token in (')', '}'):
                 stack.pop()
-                stack[-1].expansion.appendfunc(functions.VariableRef(stacktop.loc, stacktop.expansion))
+                stack[-1].expansion.appendfunc(functions.VariableRef(stacktop.loc, stacktop.expansion.finish()))
             else:
                 assert False, "Not reached, PARSESTATE_VARNAME"
         elif stacktop.parsestate == PARSESTATE_SUBSTFROM:
@@ -826,15 +826,15 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 stacktop.varname.appendstr(':')
                 stacktop.varname.concat(stacktop.expansion)
                 stack.pop()
-                stack[-1].expansion.appendfunc(functions.VariableRef(stacktop.loc, stacktop.varname))
+                stack[-1].expansion.appendfunc(functions.VariableRef(stacktop.loc, stacktop.varname.finish()))
             else:
                 assert False, "Not reached, PARSESTATE_SUBSTFROM"
         elif stacktop.parsestate == PARSESTATE_SUBSTTO:
             assert token in  (')','}'), "Not reached, PARSESTATE_SUBSTTO"
 
             stack.pop()
-            stack[-1].expansion.appendfunc(functions.SubstitutionRef(stacktop.loc, stacktop.varname,
-                                                                     stacktop.substfrom, stacktop.expansion))
+            stack[-1].expansion.appendfunc(functions.SubstitutionRef(stacktop.loc, stacktop.varname.finish(),
+                                                                     stacktop.substfrom.finish(), stacktop.expansion.finish()))
         else:
             assert False, "Unexpected parse state %s" % stacktop.parsestate
 
@@ -845,4 +845,4 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
 
     assert stack[0].parsestate == PARSESTATE_TOPLEVEL
 
-    return stack[0].expansion, None, None
+    return stack[0].expansion.finish(), None, None
