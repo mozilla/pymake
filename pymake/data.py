@@ -423,12 +423,12 @@ class Pattern(object):
     def __repr__(self):
         return "<Pattern with data %r>" % (self.data,)
 
-    backre = re.compile(r'[%\\]')
+    _backre = re.compile(r'[%\\]')
     def __str__(self):
         if not self.ispattern:
-            return self.backre.sub(r'\\\1', self.data[0])
+            return self._backre.sub(r'\\\1', self.data[0])
 
-        return self.backre.sub(r'\\\1', self.data[0]) + '%' + self.data[1]
+        return self._backre.sub(r'\\\1', self.data[0]) + '%' + self.data[1]
 
 MAKESTATE_NONE = 0
 MAKESTATE_FINISHED = 1
@@ -929,7 +929,7 @@ def findmodifiers(command):
     modset = set(command[:-len(realcommand)])
     return realcommand, '@' in modset, '+' in modset, '-' in modset
 
-class CommandWrapper(object):
+class _CommandWrapper(object):
     def __init__(self, cline, ignoreErrors, loc, context, **kwargs):
         self.ignoreErrors = ignoreErrors
         self.loc = loc
@@ -963,7 +963,7 @@ def getcommandsforrule(rule, target, makefile, prerequisites, stem):
                 echo = None
             else:
                 echo = "%s$ %s" % (c.loc, cline)
-            yield CommandWrapper(cline, ignoreErrors=ignoreErrors, env=env, cwd=makefile.workdir, loc=c.loc, context=makefile.context,
+            yield _CommandWrapper(cline, ignoreErrors=ignoreErrors, env=env, cwd=makefile.workdir, loc=c.loc, context=makefile.context,
                                  echo=echo)
 
 class Rule(object):
@@ -990,7 +990,7 @@ class Rule(object):
 
 class PatternRuleInstance(object):
     """
-    This represents a pattern rule instance for a particular target. It has the same API as Rule, but
+    A pattern rule instantiated for a particular target. It has the same API as Rule, but
     different internals, forwarding most information on to the PatternRule.
     """
     def __init__(self, prule, dir, stem, ismatchany):
@@ -1068,6 +1068,11 @@ class PatternRule(object):
         return [p.resolve(dir, stem) for p in self.prerequisites]
 
 class Makefile(object):
+    """
+    The top-level data structure for makefile execution. It holds Targets, implicit rules, and other
+    state data.
+    """
+
     def __init__(self, workdir=None, env=None, restarts=0, make=None, makeflags=None, makelevel=0, context=None):
         self.defaulttarget = None
 

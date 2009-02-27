@@ -1,5 +1,9 @@
 """
-Logic to execute a command
+Makefile execution.
+
+Multiple `makes` can be run within the same process. Each one has an entirely data.Makefile and .Target
+structure, environment, and working directory. Typically they will all share a parallel execution context,
+except when a submake specifies -j1 when the parent make is building in parallel.
 """
 
 import os, subprocess, sys, logging, time, traceback
@@ -12,6 +16,10 @@ import data, parserdata, process, util
 makepypath = os.path.normpath(os.path.join(os.path.dirname(__file__), '../make.py'))
 
 def parsemakeflags(env):
+    """
+    Parse MAKEFLAGS from the environment into a sequence of command-line arguments.
+    """
+
     makeflags = env.get('MAKEFLAGS', '')
     makeflags = makeflags.strip()
 
@@ -49,7 +57,7 @@ def parsemakeflags(env):
 
     return opts
 
-def version(*args):
+def _version(*args):
     print """pymake: GNU-compatible make program
 Copyright (C) 2009 The Mozilla Foundation <http://www.mozilla.org/>
 This is free software; see the source for copying conditions.
@@ -64,6 +72,12 @@ DEALINGS IN THE SOFTWARE."""
 _log = logging.getLogger('pymake.execution')
 
 def main(args, env, cwd, context, cb):
+    """
+    Start a single makefile execution, given a command line, working directory, and environment.
+
+    @param cb a callback to notify with an exit code when make execution is finished.
+    """
+
     try:
         makelevel = int(env.get('MAKELEVEL', '0'))
 
@@ -92,7 +106,7 @@ def main(args, env, cwd, context, cb):
         arguments = arguments1 + arguments2
 
         if options.printversion:
-            version()
+            _version()
             cb(0)
             return
 

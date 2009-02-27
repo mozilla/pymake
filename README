@@ -21,8 +21,6 @@ The Mozilla project inspired this tool with several goals:
 
 KNOWN INCOMPATIBILITIES
 
-* Parallel builds (-j > 1) are not yet supported
-
 * Order-only prerequisites are not yet supported
 
 * Secondary expansion is not yet supported.
@@ -34,10 +32,6 @@ KNOWN INCOMPATIBILITIES
 
 * $(eval) is only supported during the parse phase. Any attempt to recursively expand
   an $(eval) function during command execution will fail. This is an intentional incompatibility.
-
-* Windows is unlikely to work properly. There are subtle issues to figure out with Windows
-  file paths and shell execution, because Python is not an MSYS project but we'd like it to use
-  the MSYS shell when appropriate/necessary.
 
 * There is a subtle difference in execution order that can cause unexpected changes in the
   following circumstance:
@@ -54,21 +48,11 @@ KNOWN INCOMPATIBILITIES
 
 ISSUES
 
-* Parsing is currently very slow compared to GNU make, to the point where the overhead is
-  noticeable. I'd love assistance profiling and fixing the parser.
+* Speed is a problem.
 
 FUTURE WORK
 
-Currently, the parser emits data directly to the makefile data model, evaluating ifdefs and
-other directives during parsing. I'd like to experiment with creating a "parse model" independent
-of the actual variables: this would allow the results of parsing to be cached (perhaps solving
-the parse performance issue).
-
-I'd like to be able to run multiple "makes" within the same process, so that recursion did not
-require launching a new make process. This could also use the parsing cache mentioned above to
-avoid reparsing.
-
-I'd like to implement a new type of command which is implemented in python. This would allow us
+* implement a new type of command which is implemented in python. This would allow us
 to replace the current `nsinstall` binary (and execution costs for the shell and binary) with an
 in-process python solution.
 
