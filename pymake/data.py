@@ -3,7 +3,7 @@ A representation of makefile data structures.
 """
 
 import logging, re, os
-import parserdata, parser, functions, process, util
+import parserdata, parser, functions, process, util, native
 
 _log = logging.getLogger('pymake.data')
 
@@ -917,17 +917,18 @@ def splitcommand(command):
 
 def findmodifiers(command):
     """
-    Find any of +-@ prefixed on the command.
-    @returns (command, isHidden, isRecursive, ignoreErrors)
+    Find any of +-@% prefixed on the command.
+    @returns (command, isHidden, isRecursive, ignoreErrors, isNative)
     """
 
     isHidden = False
     isRecursive = False
     ignoreErrors = False
+    isNative = False
 
-    realcommand = command.lstrip(' \t\n@+-')
+    realcommand = command.lstrip(' \t\n@+-%')
     modset = set(command[:-len(realcommand)])
-    return realcommand, '@' in modset, '+' in modset, '-' in modset
+    return realcommand, '@' in modset, '+' in modset, '-' in modset, '%' in modset
 
 class _CommandWrapper(object):
     def __init__(self, cline, ignoreErrors, loc, context, **kwargs):
@@ -947,6 +948,36 @@ class _CommandWrapper(object):
         self.usercb = cb
         process.call(self.cline, loc=self.loc, cb=self._cb, context=self.context, **self.kwargs)
 
+#XXX: merge with the above or something
+class _NativeWrapper(object):
+    def __init__(self, cline, ignoreErrors, loc, context, env, cwd, **kwargs):
+        self.ignoreErrors = ignoreErrors
+        self.loc = loc
+        self.kwargs = kwargs
+        self.env = env
+        self.cwd = cwd
+        self.context = context
+        # get the module and method to call
+        parts = cline.split(' ', 2)
+        if len(parts) < 2:
+            raise DataError("native command '%s': no method name specified" % cline, self.loc)
+        self.module = parts[0]
+        self.method = parts[1]
+        if len(parts) == 3:
+            self.cline = parts[2]
+        else:
+            self.cline = ''
+
+    def _cb(self, res):
+        if res != 0 and not self.ignoreErrors:
+            self.usercb(error=DataError("command '%s' failed, return code %s" % (self.cline, res), self.loc))
+        else:
+            self.usercb(error=None)
+
+    def __call__(self, cb):
+        native.call(self.module, self.method, self.cline, self.env, self.cwd, self.loc)
+        cb(error=None)
+
 def getcommandsforrule(rule, target, makefile, prerequisites, stem):
     v = Variables(parent=target.variables)
     setautomaticvariables(v, makefile, target, prerequisites)
@@ -958,13 +989,17 @@ def getcommandsforrule(rule, target, makefile, prerequisites, stem):
     for c in rule.commands:
         cstring = c.resolvestr(makefile, v)
         for cline in splitcommand(cstring):
-            cline, isHidden, isRecursive, ignoreErrors = findmodifiers(cline)
+            cline, isHidden, isRecursive, ignoreErrors, isNative = findmodifiers(cline)
             if isHidden:
                 echo = None
             else:
                 echo = "%s$ %s" % (c.loc, cline)
-            yield _CommandWrapper(cline, ignoreErrors=ignoreErrors, env=env, cwd=makefile.workdir, loc=c.loc, context=makefile.context,
-                                 echo=echo)
+            if not isNative:
+                yield _CommandWrapper(cline, ignoreErrors=ignoreErrors, env=env, cwd=makefile.workdir, loc=c.loc, context=makefile.context,
+                                      echo=echo)
+            else:
+                yield _NativeWrapper(cline, ignoreErrors=ignoreErrors, env=env, cwd=makefile.workdir, loc=c.loc, context=makefile.context,
+                                      echo=echo)
 
 class Rule(object):
     """
@@ -1106,6 +1141,8 @@ class Makefile(object):
         self.variables.set('MAKE_RESTARTS', Variables.FLAVOR_SIMPLE,
                            Variables.SOURCE_AUTOMATIC, restarts > 0 and str(restarts) or '')
 
+        self.variables.set('.PYMAKE', Variables.FLAVOR_SIMPLE,
+                           Variables.SOURCE_MAKEFILE, "1")
         if make is not None:
             self.variables.set('MAKE', Variables.FLAVOR_SIMPLE,
                                Variables.SOURCE_MAKEFILE, make)
