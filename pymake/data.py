@@ -3,7 +3,7 @@ A representation of makefile data structures.
 """
 
 import logging, re, os
-import parserdata, parser, functions, process, util
+import parserdata, parser, functions, process, util, builtins
 
 _log = logging.getLogger('pymake.data')
 
@@ -189,8 +189,7 @@ class Variables(object):
     SOURCE_MAKEFILE = 2
     SOURCE_ENVIRONMENT = 3
     SOURCE_AUTOMATIC = 4
-    # I have no intention of supporting builtin rules or variables that go with them
-    # SOURCE_IMPLICIT = 5
+    SOURCE_IMPLICIT = 5
 
     def __init__(self, parent=None):
         self._map = {} # vname -> flavor, source, valuestr, valueexp
@@ -256,7 +255,7 @@ class Variables(object):
 
     def set(self, name, flavor, source, value):
         assert flavor in (self.FLAVOR_RECURSIVE, self.FLAVOR_SIMPLE)
-        assert source in (self.SOURCE_OVERRIDE, self.SOURCE_COMMANDLINE, self.SOURCE_MAKEFILE, self.SOURCE_ENVIRONMENT, self.SOURCE_AUTOMATIC)
+        assert source in (self.SOURCE_OVERRIDE, self.SOURCE_COMMANDLINE, self.SOURCE_MAKEFILE, self.SOURCE_ENVIRONMENT, self.SOURCE_AUTOMATIC, self.SOURCE_IMPLICIT)
         assert isinstance(value, str), "expected str, got %s" % type(value)
 
         prevflavor, prevsource, prevvalue = self.get(name)
@@ -1118,8 +1117,9 @@ class Makefile(object):
         self.variables.set('MAKELEVEL', Variables.FLAVOR_SIMPLE,
                            Variables.SOURCE_MAKEFILE, str(makelevel))
 
-        self.variables.set('.LIBPATTERNS', Variables.FLAVOR_SIMPLE,
-                           Variables.SOURCE_MAKEFILE, 'lib%.so lib%.a')
+        for vname, val in builtins.variables.iteritems():
+            self.variables.set(vname, Variables.FLAVOR_SIMPLE,
+                               Variables.SOURCE_IMPLICIT, val)
 
     def foundtarget(self, t):
         """
