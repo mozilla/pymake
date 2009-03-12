@@ -167,11 +167,11 @@ class TokenList(object):
 
     @staticmethod
     def get(s):
-        if s in TokenList._imap:
-            return TokenList._imap[s]
+        i = TokenList._imap.get(s, None)
+        if i is None:
+            i = TokenList(s)
+            TokenList._imap[s] = i
 
-        i = TokenList(s)
-        TokenList._imap[s] = i
         return i
 
 _emptytokenlist = TokenList.get('')
