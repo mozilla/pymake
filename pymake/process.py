@@ -10,7 +10,7 @@ if sys.platform=='win32':
 
 _log = logging.getLogger('pymake.process')
 
-_blacklist = re.compile(r'[=\\$><;*?[{~`|&]')
+_blacklist = re.compile(r'[$><;*?[{~`|&]|\\\n')
 def clinetoargv(cline):
     """
     If this command line can safely skip the shell, return an argv array.
@@ -21,7 +21,12 @@ def clinetoargv(cline):
     if m is not None:
         return None, m.group(0)
 
-    return shlex.split(cline, comments=True), None
+    args = shlex.split(cline, comments=True)
+
+    if len(args) and args[0].find('=') != -1:
+        return None, '='
+
+    return args, None
 
 shellwords = (':', '.', 'break', 'cd', 'continue', 'exec', 'exit', 'export',
               'getopts', 'hash', 'pwd', 'readonly', 'return', 'shift', 
@@ -48,6 +53,8 @@ def call(cline, env, cwd, loc, cb, context, echo):
     if shellreason is not None:
         _log.debug("%s: using shell: %s: '%s'", loc, shellreason, cline)
         if msys:
+            if len(cline) > 3 and cline[1] == ':' and cline[2] == '/':
+                cline = '/' + cline[0] + cline[2:]
             cline = [shell, "-c", cline]
         context.call(cline, shell=not msys, env=env, cwd=cwd, cb=cb, echo=echo)
         return
