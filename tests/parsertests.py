@@ -135,7 +135,7 @@ endef\n""",
         d = pymake.parser.DynamicData(lineiter, 'PlainIterTest-data')
         d.readline()
 
-        actual = ''.join( (c for c, t, o, oo in ifunc(d, 0, pymake.parser.emptytokenlist)) )
+        actual = ''.join( (c for c, t, o, oo in ifunc(d, 0, pymake.parser._emptytokenlist)) )
         self.assertEqual(actual, expected)
 
         self.assertRaises(StopIteration, lambda: fd.next())
@@ -188,7 +188,7 @@ class MakeSyntaxTest(TestBase):
         for i in xrange(0, len(actual)):
             ipath = path + [i]
 
-            a = actual[i]
+            a, isfunc = actual[i]
             e = expected[i]
             if isinstance(e, str):
                 self.assertEqual(a, e, "compareRecursive: %s" % (ipath,))
@@ -248,7 +248,7 @@ class VariableTest(TestBase):
             if val is None:
                 self.assertEqual(val, v, 'variable named %s' % k)
             else:
-                self.assertEqual(val.resolve(m, m.variables), v, 'variable named %s' % k)
+                self.assertEqual(val.resolvestr(m, m.variables), v, 'variable named %s' % k)
 
 class SimpleRuleTest(TestBase):
     testdata = """
@@ -278,7 +278,7 @@ all:: test test2 $(VAR)
         self.assertEqual(prereqs, ['test', 'test2', 'value'], "Prerequisites")
         commands = rules[0].commands
         self.assertEqual(len(commands), 1, "Number of commands")
-        expanded = commands[0].resolve(m, target.variables)
+        expanded = commands[0].resolvestr(m, target.variables)
         self.assertEqual(expanded, 'echo "Hello, myrule"')
 
         irules = m.implicitrules

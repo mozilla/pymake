@@ -21,50 +21,50 @@ class MakeError(Exception):
 
         return "%s%s" % (locstr, self.message)
 
-def itersplit(it):
-    """
-    Given an iterator that returns strings, yield words as if string.split() had been called on the concatenation
-    of the strings.
-    """
+class SplittingIO(list):
+    __slots__ = ('curword',)
 
-    curword = None
-    for s in it:
+    def __init__(self):
+        self.curword = None
+
+    def write(self, s):
         if not len(s):
-            continue
+            return
 
         initws = s[0].isspace()
         trailws = s[-1].isspace()
 
         words = s.split()
-        if curword is not None:
+        if self.curword is not None:
             if initws:
-                yield curword
+                self.append(self.curword)
             else:
-                words[0] = curword + words[0]
+                words[0] = self.curword + words[0]
 
         if trailws:
-            curword = None
+            self.curword = None
         else:
-            curword = words.pop()
+            self.curword = words.pop()
 
-        for w in words:
-            yield w
+        self.extend(words)
 
-    if curword is not None:
-        yield curword
+    def finish(self):
+        if self.curword is not None:
+            self.append(self.curword)
 
-def joiniter(it, j=' '):
+def joiniter(fd, it):
     """
-    Given an iterator that returns strings, yield the words with j inbetween each.
+    Given an iterator that returns strings, write the words with a space in between each.
     """
+    
     it = iter(it)
     for i in it:
-        yield i
+        fd.write(i)
         break
 
     for i in it:
-        yield j
-        yield i
+        fd.write(' ')
+        fd.write(i)
 
 def checkmsyscompat():
     """For msys compatibility on windows, honor the SHELL environment variable,

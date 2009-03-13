@@ -4,6 +4,7 @@ A representation of makefile data structures.
 
 import logging, re, os
 import parserdata, parser, functions, process, util, builtins
+from cStringIO import StringIO
 
 _log = logging.getLogger('pymake.data')
 
@@ -134,7 +135,7 @@ class Expansion(list):
             s = self[-1][0].rstrip()
             self[-1] = s, False
 
-    def resolve(self, makefile, variables, setting=[]):
+    def resolve(self, makefile, variables, fd, setting=[]):
         """
         Resolve this variable into a value, by interpolating the value
         of other variables.
@@ -149,27 +150,21 @@ class Expansion(list):
 
         for e, isfunc in self:
             if isfunc:
-                it = e.resolve(makefile, variables, setting)
-                assert not isinstance(it, str)
-                for j in it:
-                    yield j
+                e.resolve(makefile, variables, fd, setting)
             else:
                 assert isinstance(e, str)
-                yield e
+                fd.write(e)
                     
     def resolvestr(self, makefile, variables, setting=[]):
-        s = ''
-        for i in self.resolve(makefile, variables, setting):
-            try:
-                if i != '':
-                    s += i
-            except:
-                print "error appending i: %r" % (i,)
-                raise
-        return s
+        fd = StringIO()
+        self.resolve(makefile, variables, fd, setting)
+        return fd.getvalue()
 
     def resolvesplit(self, makefile, variables, setting=[]):
-        return util.itersplit(self.resolve(makefile, variables, setting))
+        fd = util.SplittingIO()
+        self.resolve(makefile, variables, fd, setting)
+        fd.finish()
+        return fd
 
     def __repr__(self):
         return "<Expansion with elements: %r>" % ([repr(e) for e, isfunc in self],)
