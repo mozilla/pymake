@@ -325,6 +325,8 @@ class Pattern(object):
     This insane behavior probably doesn't matter, but we're compatible just for shits and giggles.
     """
 
+    __slots__ = ('data')
+
     def __init__(self, s):
         r = []
         i = 0
@@ -378,14 +380,16 @@ class Pattern(object):
         @returns None if the word doesn't match, or the matching stem.
                       If this is a %-less pattern, the stem will always be ''
         """
-        if not self.ispattern():
-            if word == self.data[0]:
+        d = self.data
+        if len(d) == 1:
+            if word == d[0]:
                 return word
             return None
 
-        l1 = len(self.data[0])
-        l2 = len(self.data[1])
-        if len(word) >= l1 + l2 and word.startswith(self.data[0]) and word.endswith(self.data[1]):
+        d0, d1 = d
+        l1 = len(d0)
+        l2 = len(d1)
+        if len(word) >= l1 + l2 and word.startswith(d0) and word.endswith(d1):
             if l2 == 0:
                 return word[l1:]
             return word[l1:-l2]
