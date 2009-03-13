@@ -64,6 +64,7 @@ def _if_else(c, t, f):
 class StringExpansion(object):
     __slots__ = ('s',)
     loc = None
+    simple = True
     
     def __init__(self, s):
         assert isinstance(s, str)
@@ -74,15 +75,6 @@ class StringExpansion(object):
 
     def rstrip(self):
         self.s = self.s.rstrip()
-
-    def _firstisstring(self):
-        return True
-
-    def _firststring(self):
-        return self.s
-
-    def _afterfirst(self):
-        return ()
 
     def isempty(self):
         return self.s == ''
@@ -113,12 +105,14 @@ class Expansion(list):
     A representation of expanded data, such as that for a recursively-expanded variable, a command, etc.
     """
 
-    __slots__ = ('loc',)
+    __slots__ = ('loc', 'hasfunc')
+    simple = False
 
     def __init__(self, loc=None):
         # A list of (element, isfunc) tuples
         # element is either a string or a function
         self.loc = loc
+        self.hasfunc = False
 
     @staticmethod
     def fromstring(s):
@@ -129,72 +123,62 @@ class Expansion(list):
         e.extend(self)
         return e
 
-    def _firstisstring(self):
-        return len(self) and not self[0][1]
-
-    def _firststring(self):
-        return self[0][0]
-
-    def _afterfirst(self):
-        return self[1:]
-
-    def _lastisstring(self):
-        return len(self) and not self[-1][1]
-
-    def _laststring(self):
-        return self[-1][0]
-
-    def append(self, e):
-        raise NotImplementedError("Don't call me!")
-
-    _append = list.append
-
     def appendstr(self, s):
         assert isinstance(s, str)
         if s == '':
             return
 
-        if self._lastisstring():
-            s = self[-1][0] + s
-            self[-1] = s, False
-        else:
-            self._append((s, False))
+        self.append((s, False))
 
     def appendfunc(self, func):
         assert isinstance(func, functions.Function)
-        self._append((func, True))
+        self.append((func, True))
+        self.hasfunc = True
 
     def concat(self, o):
         """Concatenate the other expansion on to this one."""
-        if o._firstisstring() and self._lastisstring():
-            self[-1] = self._laststring() + o._firststring(), False
-            self.extend(o._afterfirst())
+        if o.simple:
+            self.appendstr(o.s)
         else:
             self.extend(o)
+            self.hasfunc = self.hasfunc or o.hasfunc
 
     def isempty(self):
         return (not len(self)) or self[0] == ('', False)
 
     def lstrip(self):
         """Strip leading literal whitespace from this expansion."""
-        if self._firstisstring():
-            s = self[0][0].lstrip()
-            self[0] = s, False
+        while True:
+            i, isfunc = self[0]
+            if isfunc:
+                return
+
+            i = i.lstrip()
+            if i != '':
+                self[0] = i, False
+                return
+
+            del self[0]
 
     def rstrip(self):
         """Strip trailing literal whitespace from this expansion."""
-        if self._lastisstring():
-            s = self[-1][0].rstrip()
-            self[-1] = s, False
+        while True:
+            i, isfunc = self[-1]
+            if isfunc:
+                return
+
+            i = i.rstrip()
+            if i != '':
+                self[-1] = i, False
+                return
+
+            del self[-1]
 
     def finish(self):
-        if len(self) == 0:
-            return StringExpansion('')
+        if self.hasfunc:
+            return self
 
-        if len(self) == 1 and not self[0][1]:
-            return StringExpansion(self[0][0])
-
-        return self
+        return StringExpansion(''.join([i for i, isfunc in self]))
 
     def resolve(self, makefile, variables, fd, setting=[]):
         """
@@ -233,6 +217,8 @@ class Variables(object):
     expansion object.
     """
 
+    __slots__ = ('parent', '_map')
+
     FLAVOR_RECURSIVE = 0
     FLAVOR_SIMPLE = 1
     FLAVOR_APPEND = 2
@@ -261,8 +247,8 @@ class Variables(object):
         @param expand If true, the value will be returned as an expansion. If false,
         it will be returned as an unexpanded string.
         """
-        if name in self._map:
-            flavor, source, valuestr, valueexp = self._map[name]
+        flavor, source, valuestr, valueexp = self._map.get(name, (None, None, None, None))
+        if flavor is not None:
             if expand and flavor != self.FLAVOR_SIMPLE and valueexp is None:
                 d = parser.Data.fromstring(valuestr, parserdata.Location("Expansion of variables '%s'" % (name,), 1, 0))
                 valueexp, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
