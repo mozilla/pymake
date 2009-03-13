@@ -153,15 +153,32 @@ class TokenList(object):
     A list of tokens to search. Because these lists are static, we can perform
     optimizations (such as escaping and compiling regexes) on construction.
     """
+
+    __slots__ = ('tlist', 'emptylist', 'escapedlist', 'simplere', 'makefilere', 'continuationre', 'wslist')
+
     def __init__(self, tlist):
         self.tlist = tlist
         self.emptylist = len(tlist) == 0
-        escapedlist = [re.escape(t) for t in tlist]
-        self.simplere = re.compile('|'.join(escapedlist))
-        self.makefilere = re.compile('|'.join(escapedlist + _makefiletokensescaped))
-        self.continuationre = re.compile('|'.join(escapedlist + _continuationtokensescaped))
+        self.escapedlist = [re.escape(t) for t in tlist]
 
-        self.wslist = re.compile('(' + '|'.join(escapedlist) + ')' + r'(\s+|$)')
+    def __getattr__(self, name):
+        if name == 'simplere':
+            self.simplere = re.compile('|'.join(self.escapedlist))
+            return self.simplere
+
+        if name == 'makefilere':
+            self.makefilere = re.compile('|'.join(self.escapedlist + _makefiletokensescaped))
+            return self.makefilere
+
+        if name == 'continuationre':
+            self.continuationre = re.compile('|'.join(self.escapedlist + _continuationtokensescaped))
+            return self.continuationre
+
+        if name == 'wslist':
+            self.wslist = re.compile('(' + '|'.join(self.escapedlist) + ')' + r'(\s+|$)')
+            return self.wslist
+
+        raise AttributeError(name)
 
     _imap = {}
 
