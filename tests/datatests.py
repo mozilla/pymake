@@ -11,22 +11,6 @@ def multitest(cls):
         setattr(cls, 'test_%s' % name, m)
     return cls
 
-class IterSplitTest(unittest.TestCase):
-    testdata = {
-        'nothing': ((), []),
-        'oneword': (('word'), ['word']),
-        'twowords': (('word   word2'), ['word', 'word2']),
-        'splitwords': (('word  ', ' word2 '), (['word', 'word2'])),
-        'joined': (('word', 'word2'), (['wordword2'])),
-        }
-
-    def runSingle(self, writes, expected):
-        fd = pymake.util.SplittingIO()
-        for w in writes: fd.write(w)
-        fd.finish()
-        self.assertEqual(fd, expected)
-multitest(IterSplitTest)
-
 class SplitWordsTest(unittest.TestCase):
     testdata = (
         (' test test.c test.o ', ['test', 'test.c', 'test.o']),

@@ -161,10 +161,7 @@ class Expansion(list):
         return fd.getvalue()
 
     def resolvesplit(self, makefile, variables, setting=[]):
-        fd = util.SplittingIO()
-        self.resolve(makefile, variables, fd, setting)
-        fd.finish()
-        return fd
+        return self.resolvestr(makefile, variables, setting).split()
 
     def __repr__(self):
         return "<Expansion with elements: %r>" % ([repr(e) for e, isfunc in self],)

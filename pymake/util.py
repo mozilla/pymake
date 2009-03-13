@@ -21,37 +21,6 @@ class MakeError(Exception):
 
         return "%s%s" % (locstr, self.message)
 
-class SplittingIO(list):
-    __slots__ = ('curword',)
-
-    def __init__(self):
-        self.curword = None
-
-    def write(self, s):
-        if not len(s):
-            return
-
-        initws = s[0].isspace()
-        trailws = s[-1].isspace()
-
-        words = s.split()
-        if self.curword is not None:
-            if initws:
-                self.append(self.curword)
-            else:
-                words[0] = self.curword + words[0]
-
-        if trailws:
-            self.curword = None
-        else:
-            self.curword = words.pop()
-
-        self.extend(words)
-
-    def finish(self):
-        if self.curword is not None:
-            self.append(self.curword)
-
 def joiniter(fd, it):
     """
     Given an iterator that returns strings, write the words with a space in between each.
