@@ -34,7 +34,7 @@ token, tokenoffset, afteroffset *may be None*. That means there is more text
 coming.
 """
 
-import logging, re, os
+import logging, re, os, bisect
 import data, functions, util, parserdata
 
 _log = logging.getLogger('pymake.parser')
@@ -42,26 +42,39 @@ _log = logging.getLogger('pymake.parser')
 class SyntaxError(util.MakeError):
     pass
 
-def _findlast(func, iterable):
-    for i in iterable:
-        if func(i):
-            f = i
-        else:
-            return f
+class LazyLocation(object):
+    __slots__ = ('data', 'offset', 'loc')
 
-    return f
+    def __init__(self, data, offset):
+        self.data = data
+        self.offset = offset
+        self.loc = None
 
+    def _resolve(self):
+        if self.loc is None:
+            self.loc = self.data.resolveloc(self.offset)
+
+        return self.loc
+
+    def __add__(self, o):
+        return self._resolve().__add__(o)
+
+    def __str__(self):
+        return self._resolve().__str__()
+    
 class Data(object):
     """
     A single virtual "line", which can be multiple source lines joined with
     continuations.
     """
 
+    __slots__ = ('data', '_offsets', '_locs')
+
     def __init__(self):
         self.data = ""
 
-        # _locs is a list of tuples
-        # (dataoffset, location)
+        # _offsets and _locs are matched lists
+        self._offsets = []
         self._locs = []
 
     @staticmethod
@@ -70,20 +83,12 @@ class Data(object):
         d.append(str, loc)
         return d
 
-    # def __len__(self):
-    #     return len(self.data)
-
-    # def __getitem__(self, key):
-    #     try:
-    #         return self.data[key]
-    #     except IndexError:
-    #         return None
-
     def append(self, data, loc):
-        self._locs.append( (len(self.data), loc) )
+        self._offsets.append(len(self.data))
+        self._locs.append(loc)
         self.data += data
 
-    def getloc(self, offset):
+    def resolveloc(self, offset):
         """
         Get the location of an offset within data.
         """
@@ -93,8 +98,13 @@ class Data(object):
         if offset == -1:
             offset = 0
 
-        begin, loc = _findlast(lambda (o, l): o <= offset, self._locs)
+        idx = bisect.bisect_right(self._offsets, offset) - 1
+        loc = self._locs[idx]
+        begin = self._offsets[idx]
         return loc + self.data[begin:offset]
+
+    def getloc(self, offset):
+        return LazyLocation(self, offset)
 
     def skipwhitespace(self, offset):
         """
@@ -700,20 +710,18 @@ def parsestream(fd, filename):
     return condstack[0]
 
 _PARSESTATE_TOPLEVEL = 0    # at the top level
-_PARSESTATE_FUNCTION = 1    # expanding a function call. data is function
-
-# For the following three, data is a tuple of Expansions: (varname, substfrom, substto)
+_PARSESTATE_FUNCTION = 1    # expanding a function call
 _PARSESTATE_VARNAME = 2     # expanding a variable expansion.
 _PARSESTATE_SUBSTFROM = 3   # expanding a variable expansion substitution "from" value
 _PARSESTATE_SUBSTTO = 4     # expanding a variable expansion substitution "to" value
-
-_PARSESTATE_PARENMATCH = 5
+_PARSESTATE_PARENMATCH = 5  # inside nested parentheses/braces that must be matched
 
 class ParseStackFrame(object):
-    __slots__ = ('parsestate', 'expansion', 'tokenlist', 'openbrace', 'closebrace', 'function', 'loc', 'varname', 'substfrom')
+    __slots__ = ('parsestate', 'parent', 'expansion', 'tokenlist', 'openbrace', 'closebrace', 'function', 'loc', 'varname', 'substfrom')
 
-    def __init__(self, parsestate, expansion, tokenlist, openbrace, closebrace, function=None, loc=None):
+    def __init__(self, parsestate, parent, expansion, tokenlist, openbrace, closebrace, function=None, loc=None):
         self.parsestate = parsestate
+        self.parent = parent
         self.expansion = expansion
         self.tokenlist = tokenlist
         self.openbrace = openbrace
@@ -755,15 +763,13 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
 
     assert callable(iterfunc)
 
-    stack = [
-        ParseStackFrame(_PARSESTATE_TOPLEVEL, data.Expansion(loc=d.getloc(startat)),
-                        tokenlist=TokenList.get(stopon + ('$',)),
-                        openbrace=None, closebrace=None)
-    ]
+    stacktop = ParseStackFrame(_PARSESTATE_TOPLEVEL, None, data.Expansion(loc=d.getloc(startat)),
+                               tokenlist=TokenList.get(stopon + ('$',)),
+                               openbrace=None, closebrace=None)
 
-    di = iterfunc(d, startat, stack[-1].tokenlist)
+    di = iterfunc(d, startat, stacktop.tokenlist)
     while True: # this is not a for loop because `di` changes during the function
-        stacktop = stack[-1]
+        assert stacktop is not None
         try:
             s, token, tokenoffset, offset = di.next()
         except StopIteration:
@@ -772,6 +778,8 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
         stacktop.expansion.appendstr(s)
         if token is None:
             continue
+
+        parsestate = stacktop.parsestate
 
         if token == '$':
             if len(d.data) == offset:
@@ -797,16 +805,17 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                     else:
                         tokenlist = TokenList.get((',', c, closebrace, '$'))
 
-                    stack.append(ParseStackFrame(_PARSESTATE_FUNCTION,
-                                                 e, tokenlist, function=fn,
-                                                 openbrace=c, closebrace=closebrace))
+                    stacktop = ParseStackFrame(_PARSESTATE_FUNCTION, stacktop,
+                                               e, tokenlist, function=fn,
+                                               openbrace=c, closebrace=closebrace)
                     di = iterfunc(d, offset, tokenlist)
                     continue
 
                 e = data.Expansion()
                 tokenlist = TokenList.get((':', c, closebrace, '$'))
-                stack.append(ParseStackFrame(_PARSESTATE_VARNAME, e, tokenlist,
-                                             openbrace=c, closebrace=closebrace, loc=loc))
+                stacktop = ParseStackFrame(_PARSESTATE_VARNAME, stacktop,
+                                           e, tokenlist,
+                                           openbrace=c, closebrace=closebrace, loc=loc)
                 di = iterfunc(d, offset, tokenlist)
                 continue
             else:
@@ -817,18 +826,18 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
             assert token == stacktop.openbrace
 
             stacktop.expansion.appendstr(token)
-            stack.append(ParseStackFrame(_PARSESTATE_PARENMATCH,
-                                         stacktop.expansion,
-                                         TokenList.get((token, stacktop.closebrace,)),
-                                         openbrace=token, closebrace=stacktop.closebrace, loc=d.getloc(tokenoffset)))
-        elif stacktop.parsestate == _PARSESTATE_PARENMATCH:
+            stacktop = ParseStackFrame(_PARSESTATE_PARENMATCH, stacktop,
+                                       stacktop.expansion,
+                                       TokenList.get((token, stacktop.closebrace,)),
+                                       openbrace=token, closebrace=stacktop.closebrace, loc=d.getloc(tokenoffset))
+        elif parsestate == _PARSESTATE_PARENMATCH:
             assert token == stacktop.closebrace
             stacktop.expansion.appendstr(token)
-            stack.pop()
-        elif stacktop.parsestate == _PARSESTATE_TOPLEVEL:
-            assert len(stack) == 1
+            stacktop = stacktop.parent
+        elif parsestate == _PARSESTATE_TOPLEVEL:
+            assert stacktop.parent is None
             return stacktop.expansion.finish(), token, offset
-        elif stacktop.parsestate == _PARSESTATE_FUNCTION:
+        elif parsestate == _PARSESTATE_FUNCTION:
             if token == ',':
                 stacktop.function.append(stacktop.expansion.finish())
 
@@ -837,24 +846,27 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                     tokenlist = TokenList.get((stacktop.openbrace, stacktop.closebrace, '$'))
                     stacktop.tokenlist = tokenlist
             elif token in (')', '}'):
-                stacktop.function.append(stacktop.expansion.finish())
-                stacktop.function.setup()
-                stack.pop()
-                stack[-1].expansion.appendfunc(stacktop.function)
+                fn = stacktop.function
+                fn.append(stacktop.expansion.finish())
+                fn.setup()
+                
+                stacktop = stacktop.parent
+                stacktop.expansion.appendfunc(fn)
             else:
                 assert False, "Not reached, _PARSESTATE_FUNCTION"
-        elif stacktop.parsestate == _PARSESTATE_VARNAME:
+        elif parsestate == _PARSESTATE_VARNAME:
             if token == ':':
                 stacktop.varname = stacktop.expansion
                 stacktop.parsestate = _PARSESTATE_SUBSTFROM
                 stacktop.expansion = data.Expansion()
                 stacktop.tokenlist = TokenList.get(('=', stacktop.openbrace, stacktop.closebrace, '$'))
             elif token in (')', '}'):
-                stack.pop()
-                stack[-1].expansion.appendfunc(functions.VariableRef(stacktop.loc, stacktop.expansion.finish()))
+                fn = functions.VariableRef(stacktop.loc, stacktop.expansion.finish())
+                stacktop = stacktop.parent
+                stacktop.expansion.appendfunc(fn)
             else:
                 assert False, "Not reached, _PARSESTATE_VARNAME"
-        elif stacktop.parsestate == _PARSESTATE_SUBSTFROM:
+        elif parsestate == _PARSESTATE_SUBSTFROM:
             if token == '=':
                 stacktop.substfrom = stacktop.expansion
                 stacktop.parsestate = _PARSESTATE_SUBSTTO
@@ -867,24 +879,26 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                 _log.warning("%s: Variable reference looks like substitution without =", stacktop.loc)
                 stacktop.varname.appendstr(':')
                 stacktop.varname.concat(stacktop.expansion)
-                stack.pop()
-                stack[-1].expansion.appendfunc(functions.VariableRef(stacktop.loc, stacktop.varname.finish()))
+                fn = functions.VariableRef(stacktop.loc, stacktop.varname.finish())
+                stacktop = stacktop.parent
+                stacktop.expansion.appendfunc(fn)
             else:
                 assert False, "Not reached, _PARSESTATE_SUBSTFROM"
-        elif stacktop.parsestate == _PARSESTATE_SUBSTTO:
+        elif parsestate == _PARSESTATE_SUBSTTO:
             assert token in  (')','}'), "Not reached, _PARSESTATE_SUBSTTO"
 
-            stack.pop()
-            stack[-1].expansion.appendfunc(functions.SubstitutionRef(stacktop.loc, stacktop.varname.finish(),
-                                                                     stacktop.substfrom.finish(), stacktop.expansion.finish()))
+            fn = functions.SubstitutionRef(stacktop.loc, stacktop.varname.finish(),
+                                           stacktop.substfrom.finish(), stacktop.expansion.finish())
+            stacktop = stacktop.parent
+            stacktop.expansion.appendfunc(fn)
         else:
             assert False, "Unexpected parse state %s" % stacktop.parsestate
 
-        di = iterfunc(d, offset, stack[-1].tokenlist)
+        di = iterfunc(d, offset, stacktop.tokenlist)
 
-    if len(stack) != 1:
+    if stacktop.parent is not None:
         raise SyntaxError("Unterminated function call", d.getloc(offset))
 
-    assert stack[0].parsestate == _PARSESTATE_TOPLEVEL
+    assert stacktop.parsestate == _PARSESTATE_TOPLEVEL
 
-    return stack[0].expansion.finish(), None, None
+    return stacktop.expansion.finish(), None, None
