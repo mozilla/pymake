@@ -107,8 +107,8 @@ class DummyRule(object):
 
 class Rule(Statement):
     def __init__(self, targetexp, depexp, doublecolon):
-        assert isinstance(targetexp, data.Expansion)
-        assert isinstance(depexp, data.Expansion)
+        assert isinstance(targetexp, (data.Expansion, data.StringExpansion))
+        assert isinstance(depexp, (data.Expansion, data.StringExpansion))
         
         self.targetexp = targetexp
         self.depexp = depexp
@@ -144,9 +144,9 @@ class Rule(Statement):
 
 class StaticPatternRule(Statement):
     def __init__(self, targetexp, patternexp, depexp, doublecolon):
-        assert isinstance(targetexp, data.Expansion)
-        assert isinstance(patternexp, data.Expansion)
-        assert isinstance(depexp, data.Expansion)
+        assert isinstance(targetexp, (data.Expansion, data.StringExpansion))
+        assert isinstance(patternexp, (data.Expansion, data.StringExpansion))
+        assert isinstance(depexp, (data.Expansion, data.StringExpansion))
 
         self.targetexp = targetexp
         self.patternexp = patternexp
@@ -185,7 +185,7 @@ class StaticPatternRule(Statement):
 
 class Command(Statement):
     def __init__(self, exp):
-        assert isinstance(exp, data.Expansion)
+        assert isinstance(exp, (data.Expansion, data.StringExpansion))
         self.exp = exp
 
     def execute(self, makefile, context):
@@ -197,9 +197,9 @@ class Command(Statement):
 
 class SetVariable(Statement):
     def __init__(self, vnameexp, token, value, valueloc, targetexp, source=None):
-        assert isinstance(vnameexp, data.Expansion)
+        assert isinstance(vnameexp, (data.Expansion, data.StringExpansion))
         assert isinstance(value, str)
-        assert targetexp is None or isinstance(targetexp, data.Expansion)
+        assert targetexp is None or isinstance(targetexp, (data.Expansion, data.StringExpansion))
 
         if source is None:
             source = data.Variables.SOURCE_MAKEFILE
@@ -266,8 +266,8 @@ class EqCondition(Condition):
     expected = True
 
     def __init__(self, exp1, exp2):
-        assert isinstance(exp1, data.Expansion)
-        assert isinstance(exp2, data.Expansion)
+        assert isinstance(exp1, (data.Expansion, data.StringExpansion))
+        assert isinstance(exp2, (data.Expansion, data.StringExpansion))
 
         self.exp1 = exp1
         self.exp2 = exp2
@@ -284,7 +284,7 @@ class IfdefCondition(Condition):
     expected = True
 
     def __init__(self, exp):
-        assert isinstance(exp, data.Expansion)
+        assert isinstance(exp, (data.Expansion, data.StringExpansion))
         self.exp = exp
 
     def evaluate(self, makefile):
@@ -352,7 +352,7 @@ class ConditionBlock(Statement):
 
 class Include(Statement):
     def __init__(self, exp, required):
-        assert isinstance(exp, data.Expansion)
+        assert isinstance(exp, (data.Expansion, data.StringExpansion))
         self.exp = exp
         self.required = required
 
@@ -366,7 +366,7 @@ class Include(Statement):
 
 class VPathDirective(Statement):
     def __init__(self, exp):
-        assert isinstance(exp, data.Expansion)
+        assert isinstance(exp, (data.Expansion, data.StringExpansion))
         self.exp = exp
 
     def execute(self, makefile, context):
@@ -392,7 +392,7 @@ class VPathDirective(Statement):
 
 class ExportDirective(Statement):
     def __init__(self, exp, single):
-        assert isinstance(exp, data.Expansion)
+        assert isinstance(exp, (data.Expansion, data.StringExpansion))
         self.exp = exp
         self.single = single
 
@@ -412,7 +412,7 @@ class ExportDirective(Statement):
 
 class EmptyDirective(Statement):
     def __init__(self, exp):
-        assert isinstance(exp, data.Expansion)
+        assert isinstance(exp, (data.Expansion, data.StringExpansion))
         self.exp = exp
 
     def execute(self, makefile, context):

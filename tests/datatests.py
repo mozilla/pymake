@@ -1,6 +1,7 @@
 import pymake.data, pymake.util
 import unittest
 import re
+from cStringIO import StringIO
 
 def multitest(cls):
     for name in cls.testdata.iterkeys():
@@ -9,20 +10,6 @@ def multitest(cls):
 
         setattr(cls, 'test_%s' % name, m)
     return cls
-
-class IterSplitTest(unittest.TestCase):
-    testdata = {
-        'nothing': ((), []),
-        'oneword': (('word'), ['word']),
-        'twowords': (('word   word2'), ['word', 'word2']),
-        'splitwords': (('word  ', ' word2 '), (['word', 'word2'])),
-        'joined': (('word', 'word2'), (['wordword2'])),
-        }
-
-    def runSingle(self, it, expected):
-        got = list(pymake.util.itersplit(it))
-        self.assertEqual(got, expected)
-multitest(IterSplitTest)
 
 class SplitWordsTest(unittest.TestCase):
     testdata = (

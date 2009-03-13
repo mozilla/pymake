@@ -4,6 +4,7 @@ A representation of makefile data structures.
 
 import logging, re, os
 import parserdata, parser, functions, process, util, builtins
+from cStringIO import StringIO
 
 _log = logging.getLogger('pymake.data')
 
@@ -60,6 +61,53 @@ def _if_else(c, t, f):
         return t()
     return f()
 
+class StringExpansion(object):
+    __slots__ = ('s',)
+    loc = None
+    
+    def __init__(self, s):
+        assert isinstance(s, str)
+        self.s = s
+
+    def lstrip(self):
+        self.s = self.s.lstrip()
+
+    def rstrip(self):
+        self.s = self.s.rstrip()
+
+    def _firstisstring(self):
+        return True
+
+    def _firststring(self):
+        return self.s
+
+    def _afterfirst(self):
+        return ()
+
+    def isempty(self):
+        return self.s == ''
+
+    def resolve(self, i, j, fd, k=None):
+        fd.write(self.s)
+
+    def resolvestr(self, i, j, k=None):
+        return self.s
+
+    def resolvesplit(self, i, j, k=None):
+        return self.s.split()
+
+    def clone(self):
+        e = Expansion()
+        e.appendstr(self.s)
+        return e
+
+    def __len__(self):
+        return 1
+
+    def __getitem__(self, i):
+        assert i == 0
+        return self.s, False
+
 class Expansion(list):
     """
     A representation of expanded data, such as that for a recursively-expanded variable, a command, etc.
@@ -74,20 +122,27 @@ class Expansion(list):
 
     @staticmethod
     def fromstring(s):
-        e = Expansion()
-        e.appendstr(s)
-        return e
+        return StringExpansion(s)
 
     def clone(self):
         e = Expansion()
         e.extend(self)
         return e
 
+    def _firstisstring(self):
+        return len(self) and not self[0][1]
+
+    def _firststring(self):
+        return self[0][0]
+
+    def _afterfirst(self):
+        return self[1:]
+
     def _lastisstring(self):
         return len(self) and not self[-1][1]
 
-    def _firstisstring(self):
-        return len(self) and not self[0][1]
+    def _laststring(self):
+        return self[-1][0]
 
     def append(self, e):
         raise NotImplementedError("Don't call me!")
@@ -112,10 +167,8 @@ class Expansion(list):
     def concat(self, o):
         """Concatenate the other expansion on to this one."""
         if o._firstisstring() and self._lastisstring():
-            mystr = self[-1][0]
-            ostr = o[0][0]
-            self[-1] = mystr + ostr, False
-            self.extend(o[1:])
+            self[-1] = self._laststring() + o._firststring(), False
+            self.extend(o._afterfirst())
         else:
             self.extend(o)
 
@@ -134,7 +187,16 @@ class Expansion(list):
             s = self[-1][0].rstrip()
             self[-1] = s, False
 
-    def resolve(self, makefile, variables, setting=[]):
+    def finish(self):
+        if len(self) == 0:
+            return StringExpansion('')
+
+        if len(self) == 1 and not self[0][1]:
+            return StringExpansion(self[0][0])
+
+        return self
+
+    def resolve(self, makefile, variables, fd, setting=[]):
         """
         Resolve this variable into a value, by interpolating the value
         of other variables.
@@ -149,30 +211,21 @@ class Expansion(list):
 
         for e, isfunc in self:
             if isfunc:
-                it = e.resolve(makefile, variables, setting)
-                assert not isinstance(it, str)
-                for j in it:
-                    yield j
+                e.resolve(makefile, variables, fd, setting)
             else:
                 assert isinstance(e, str)
-                yield e
+                fd.write(e)
                     
     def resolvestr(self, makefile, variables, setting=[]):
-        s = ''
-        for i in self.resolve(makefile, variables, setting):
-            try:
-                if i != '':
-                    s += i
-            except:
-                print "error appending i: %r" % (i,)
-                raise
-        return s
+        fd = StringIO()
+        self.resolve(makefile, variables, fd, setting)
+        return fd.getvalue()
 
     def resolvesplit(self, makefile, variables, setting=[]):
-        return util.itersplit(self.resolve(makefile, variables, setting))
+        return self.resolvestr(makefile, variables, setting).split()
 
     def __repr__(self):
-        return "<Expansion with elements: %r>" % ([repr(e) for e, isfunc in self],)
+        return "<Expansion with elements: %r>" % ([e for e, isfunc in self],)
 
 class Variables(object):
     """
@@ -982,7 +1035,7 @@ class Rule(object):
         self.loc = loc
 
     def addcommand(self, c):
-        assert isinstance(c, Expansion)
+        assert isinstance(c, (Expansion, StringExpansion))
         self.commands.append(c)
 
     def getcommands(self, target, makefile):
@@ -1032,7 +1085,7 @@ class PatternRule(object):
         self.commands = []
 
     def addcommand(self, c):
-        assert isinstance(c, Expansion)
+        assert isinstance(c, (Expansion, StringExpansion))
         self.commands.append(c)
 
     def ismatchany(self):
