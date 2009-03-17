@@ -1,4 +1,4 @@
-import logging, re
+import logging, re, os
 import data, functions, util, parser
 from cStringIO import StringIO
 from pymake.globrelative import hasglob, glob
@@ -382,7 +382,7 @@ class VPathDirective(Statement):
             else:
                 dirs = []
                 for mpath in mpaths:
-                    dirs.extend((dir for dir in mpath.split(':')
+                    dirs.extend((dir for dir in mpath.split(os.pathsep)
                                  if dir != ''))
                 if len(dirs):
                     makefile.addvpath(pattern, dirs)
