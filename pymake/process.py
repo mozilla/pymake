@@ -119,6 +119,7 @@ class ParallelContext(object):
             cb(*args, **kwargs)
 
     def defer(self, cb, *args, **kwargs):
+        assert self.jcount > 1 or not len(self.pending), "Serial execution error defering %r %r %r: currently pending %r" % (cb, args, kwargs, self.pending)
         self.pending.append((cb, args, kwargs))
 
     def _docall(self, argv, executable, shell, env, cwd, cb, echo):
