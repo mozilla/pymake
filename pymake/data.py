@@ -582,7 +582,7 @@ class Target(object):
             for p in r.prerequisites:
                 t = makefile.gettarget(p)
                 try:
-                    t.resolvedeps(makefile, targetstack, newrulestack)
+                    t.resolvedeps(makefile, targetstack, newrulestack, True)
                 except ResolutionError:
                     depfailed = p
                     break
@@ -601,7 +601,7 @@ class Target(object):
         "The number of rules with commands"
         return reduce(lambda i, rule: i + (len(rule.commands) > 0), self.rules, 0)
 
-    def resolvedeps(self, makefile, targetstack, rulestack):
+    def resolvedeps(self, makefile, targetstack, rulestack, recursive):
         """
         Resolve the actual path of this target, using vpath if necessary.
 
@@ -652,14 +652,15 @@ class Target(object):
             raise ResolutionError("No rule to make target '%s' needed by %r" % (self.target,
                                                                                 targetstack))
 
-        for r in self.rules:
-            newrulestack = rulestack + [r]
-            for d in r.prerequisites:
-                dt = makefile.gettarget(d)
-                if dt.explicit:
-                    continue
+        if recursive:
+            for r in self.rules:
+                newrulestack = rulestack + [r]
+                for d in r.prerequisites:
+                    dt = makefile.gettarget(d)
+                    if dt.explicit:
+                        continue
 
-                dt.resolvedeps(makefile, targetstack, newrulestack)
+                    dt.resolvedeps(makefile, targetstack, newrulestack, True)
 
         for v in makefile.getpatternvariablesfor(self.target):
             self.variables.merge(v)
@@ -902,7 +903,7 @@ class Target(object):
                         makefile.context.defer(startdep, d)
 
         try:
-            self.resolvedeps(makefile, targetstack, rulestack)
+            self.resolvedeps(makefile, targetstack, rulestack, False)
         except util.MakeError, e:
             self._makeerror = e
             self._notifydone(makefile)
