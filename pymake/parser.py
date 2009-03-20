@@ -504,7 +504,9 @@ def parsefile(pathname):
 
         _log.debug("Not using '%s' from the parser cache, mtimes don't match: was %s, now %s", pathname, oldmtime, mtime)
 
-    stmts = parsestream(open(pathname, "rU"), pathname)
+    fd = open(pathname, "rU")
+    stmts = parsestream(fd, pathname)
+    fd.close()
     _parsecache[pathname] = mtime, stmts
     return stmts
 
