@@ -63,7 +63,7 @@ for makefile in makefiles:
         cline += ['__WIN32__=1']
         
     returncode = 0
-    grepfor = "TEST-PASS"
+    grepfor = None
 
     mdata = open(makefile)
     for line in mdata:
@@ -95,7 +95,13 @@ for makefile in makefiles:
     elif stdout.find('TEST-FAIL') != -1:
         print "FAIL"
         print stdout
-    elif returncode == 0 or returncode == p.returncode:
+    elif returncode == 0:
+        if stdout.find(grepfor or 'TEST-PASS') != -1:
+            print "PASS"
+        else:
+            print "FAIL (no expected output)"
+            print stdout
+    elif grepfor and returncode == p.returncode:
         if stdout.find(grepfor) != -1:
             print "PASS"
         else:
