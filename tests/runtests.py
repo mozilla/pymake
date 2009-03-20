@@ -11,6 +11,7 @@ The test file may contain lines at the beginning to alter the default behavior. 
 #T commandline: ['extra', 'params', 'here']
 #T returncode: 2
 #T returncode-on: {'win32': 2}
+#T grep-for: "text"
 """
 
 from subprocess import Popen, PIPE, STDOUT
@@ -62,6 +63,7 @@ for makefile in makefiles:
         cline += ['__WIN32__=1']
         
     returncode = 0
+    grepfor = "TEST-PASS"
 
     mdata = open(makefile)
     for line in mdata:
@@ -77,6 +79,8 @@ for makefile in makefiles:
         elif key == 'returncode-on':
             if sys.platform in data:
                 returncode = data[sys.platform]
+        elif key == 'grep-for':
+            grepfor = data
         else:
             print >>sys.stderr, "Unexpected #T key: %s" % key
             sys.exit(1)
@@ -91,11 +95,11 @@ for makefile in makefiles:
     elif stdout.find('TEST-FAIL') != -1:
         print "FAIL"
         print stdout
-    elif returncode == 0:
-        if stdout.find('TEST-PASS') != -1:
+    elif returncode == 0 or returncode == p.returncode:
+        if stdout.find(grepfor) != -1:
             print "PASS"
         else:
-            print "FAIL (no passing output)"
+            print "FAIL (no expected output)"
             print stdout
     else:
         print "EXPECTED-FAIL"
