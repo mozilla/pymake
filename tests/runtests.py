@@ -101,7 +101,8 @@ for makefile in makefiles:
         else:
             print "FAIL (no expected output)"
             print stdout
-    elif grepfor and returncode == p.returncode:
+    # check that test produced the expected output while failing
+    elif grepfor:
         if stdout.find(grepfor) != -1:
             print "PASS"
         else:

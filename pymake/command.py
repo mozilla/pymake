@@ -89,6 +89,9 @@ def main(args, env, cwd, context, cb):
         op.add_option('-d',
                       action="store_true",
                       dest="verbose", default=False)
+        op.add_option('-k', '--keep-going',
+                      action="store_true",
+                      dest="keepgoing", default=False)
         op.add_option('--debug-log',
                       dest="debuglog", default=None)
         op.add_option('-C', '--directory',
@@ -112,6 +115,9 @@ def main(args, env, cwd, context, cb):
 
         shortflags = []
         longflags = []
+
+        if options.keepgoing:
+            shortflags.append('k');
 
         loglevel = logging.WARNING
         if options.verbose:
