@@ -203,6 +203,8 @@ class ParallelContext(object):
                             break
 
                     if found: break
+            else:
+                assert any(len(c.pending) for c in ParallelContext._allcontexts)
 
 def makedeferrable(usercb, **userkwargs):
     def cb(*args, **kwargs):

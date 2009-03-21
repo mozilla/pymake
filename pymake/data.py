@@ -483,6 +483,7 @@ class RemakeRuleContext(object):
         self.rule = rule
         self.deps = deps
         self.running = False
+        self.depsremaining = len(deps) + 1
 
     def resolvedeps(self, target, makefile, targetstack, rulestack, serial, cb):
         if serial:
@@ -510,7 +511,7 @@ class RemakeRuleContext(object):
         depfinished(None, False)
 
     def _resolvedepsparallel(self, target, makefile, targetstack, rulestack, cb):
-        self.depsremaining = len(self.deps)
+        self.depsremaining -= 1
         if self.depsremaining == 0:
             cb(error=None, didanything=False)
             return
