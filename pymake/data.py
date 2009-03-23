@@ -1226,7 +1226,7 @@ class Makefile(object):
         self.variables.readfromenvironment(env)
 
         self.context = context
-        self.exportedvars = set()
+        self.exportedvars = {}
         self.overrides = []
         self._targets = {}
         self._patternvariables = [] # of (pattern, variables)
@@ -1429,13 +1429,16 @@ class Makefile(object):
 
     def getsubenvironment(self, variables):
         env = dict(self.env)
-        for vname in self.exportedvars:
-            flavor, source, val = variables.get(vname)
-            if val is None:
-                strval = ''
+        for vname, v in self.exportedvars.iteritems():
+            if v:
+                flavor, source, val = variables.get(vname)
+                if val is None:
+                    strval = ''
+                else:
+                    strval = val.resolvestr(self, variables, [vname])
+                env[vname] = strval
             else:
-                strval = val.resolvestr(self, variables, [vname])
-            env[vname] = strval
+                env.pop(vname, None)
 
         makeflags = ''
 

@@ -405,10 +405,19 @@ class ExportDirective(Statement):
                 raise data.DataError("Exporting all variables is not supported", self.exp.loc)
 
         for v in vlist:
-            makefile.exportedvars.add(v)
+            makefile.exportedvars[v] = True
 
     def dump(self, fd, indent):
         print >>fd, indent, "Export (single=%s) %r" % (self.single, self.exp)
+
+class UnexportDirective(Statement):
+    def __init__(self, exp):
+        self.exp = exp
+
+    def execute(self, makefile, context):
+        vlist = list(self.exp.resolvesplit(makefile, makefile.variables))
+        for v in vlist:
+            makefile.exportedvars[v] = False
 
 class EmptyDirective(Statement):
     def __init__(self, exp):

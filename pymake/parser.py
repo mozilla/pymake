@@ -635,7 +635,9 @@ def parsestream(fd, filename):
                 continue
 
             if kword == 'unexport':
-                raise SyntaxError("unexporting variables is not supported", d.getloc(offset))
+                e, token, offset = parsemakesyntax(d, offset, (), itermakefilechars)
+                condstack[-1].append(parserdata.UnexportDirective(e))
+                continue
 
             assert kword is None, "unexpected kword: %r" % (kword,)
 
