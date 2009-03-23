@@ -188,7 +188,8 @@ def main(args, env, cwd, context, cb):
                     _log.info("make.py[%i]: Restarting makefile parsing", makelevel)
                 makefile = data.Makefile(restarts=restarts, make='%s %s' % (sys.executable.replace('\\', '/'), makepypath.replace('\\', '/')),
                                          makeflags=makeflags, makelevel=makelevel, workdir=workdir,
-                                         context=context, env=env)
+                                         context=context, env=env,
+                                         targets=targets)
 
                 try:
                     overrides.execute(makefile)

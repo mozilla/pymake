@@ -1215,7 +1215,7 @@ class Makefile(object):
     state data.
     """
 
-    def __init__(self, workdir=None, env=None, restarts=0, make=None, makeflags=None, makelevel=0, context=None):
+    def __init__(self, workdir=None, env=None, restarts=0, make=None, makeflags=None, makelevel=0, context=None, targets=()):
         self.defaulttarget = None
 
         if env is None:
@@ -1259,6 +1259,9 @@ class Makefile(object):
         self.makelevel = makelevel
         self.variables.set('MAKELEVEL', Variables.FLAVOR_SIMPLE,
                            Variables.SOURCE_MAKEFILE, str(makelevel))
+
+        self.variables.set('MAKECMDGOALS', Variables.FLAVOR_SIMPLE,
+                           Variables.SOURCE_AUTOMATIC, ' '.join(targets))
 
         for vname, val in builtins.variables.iteritems():
             self.variables.set(vname, Variables.FLAVOR_SIMPLE,
