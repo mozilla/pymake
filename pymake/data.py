@@ -1342,6 +1342,10 @@ class Makefile(object):
                 for p in r.prerequisites:
                     self.gettarget(p).explicit = True
 
+        np = self.gettarget('.NOTPARALLEL')
+        if len(np.rules):
+            self.context = process.getcontext(1)
+
     def include(self, path, required=True, loc=None):
         """
         Include the makefile at `path`.
