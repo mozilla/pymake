@@ -636,7 +636,7 @@ class Target(object):
 
     def isphony(self, makefile):
         """Is this a phony target? We don't check for existence of phony targets."""
-        phony = makefile.gettarget('.PHONY').hasdependency(self.target)
+        return makefile.gettarget('.PHONY').hasdependency(self.target)
 
     def hasdependency(self, t):
         for rule in self.rules:
