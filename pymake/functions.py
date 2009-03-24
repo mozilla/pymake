@@ -549,7 +549,7 @@ class ShellFunction(Function):
         stdout, stderr = p.communicate()
 
         stdout = stdout.replace('\r\n', '\n')
-        if len(stdout) > 1 and stdout[-1] == '\n':
+        if stdout.endswith('\n'):
             stdout = stdout[:-1]
         stdout = stdout.replace('\n', ' ')
 
