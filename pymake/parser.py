@@ -189,7 +189,7 @@ def iterdata(d, offset, tokenlist):
         yield d.data[offset:m.start(0)], m.group(0), m.start(0), m.end(0)
         offset = m.end(0)
 
-def itermakefilechars(d, offset, tokenlist):
+def itermakefilechars(d, offset, tokenlist, ignorecomments=False):
     """
     Iterate over data in makefile syntax. Comments are found at unescaped # characters, and escaped newlines
     are converted to single-space continuations.
@@ -213,6 +213,11 @@ def itermakefilechars(d, offset, tokenlist):
             return
 
         if token == '#':
+            if ignorecomments:
+                yield d.data[offset:end], None, None, None
+                offset = end
+                continue
+
             yield d.data[offset:start], None, None, None
             for s in itermakefilechars(d, end, _emptytokenlist): pass
             return
@@ -776,16 +781,12 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
                     stacktop = ParseStackFrame(_PARSESTATE_FUNCTION, stacktop,
                                                e, tokenlist, function=fn,
                                                openbrace=c, closebrace=closebrace)
-                    di = iterfunc(d, offset, tokenlist)
-                    continue
-
-                e = data.Expansion()
-                tokenlist = TokenList.get((':', c, closebrace, '$'))
-                stacktop = ParseStackFrame(_PARSESTATE_VARNAME, stacktop,
-                                           e, tokenlist,
-                                           openbrace=c, closebrace=closebrace, loc=loc)
-                di = iterfunc(d, offset, tokenlist)
-                continue
+                else:
+                    e = data.Expansion()
+                    tokenlist = TokenList.get((':', c, closebrace, '$'))
+                    stacktop = ParseStackFrame(_PARSESTATE_VARNAME, stacktop,
+                                               e, tokenlist,
+                                               openbrace=c, closebrace=closebrace, loc=loc)
             else:
                 e = data.Expansion.fromstring(c, loc)
                 stacktop.expansion.appendfunc(functions.VariableRef(loc, e))
@@ -862,7 +863,11 @@ def parsemakesyntax(d, startat, stopon, iterfunc):
         else:
             assert False, "Unexpected parse state %s" % stacktop.parsestate
 
-        di = iterfunc(d, offset, stacktop.tokenlist)
+        if stacktop.parent is not None and iterfunc == itercommandchars:
+            di = itermakefilechars(d, offset, stacktop.tokenlist,
+                                   ignorecomments=True)
+        else:
+            di = iterfunc(d, offset, stacktop.tokenlist)
 
     if stacktop.parent is not None:
         raise SyntaxError("Unterminated function call", d.getloc(offset))
