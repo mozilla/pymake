@@ -23,10 +23,23 @@ class Location(object):
 
     def __add__(self, data):
         """
-        Returns a new location on the same line offset by
+        Returns a new location offset by
         the specified string.
         """
-        column = self.column
+
+        if data == '':
+            return self
+        
+        skiplines = data.count('\n')
+        line = self.line + skiplines
+        if skiplines:
+            lastnl = data.rfind('\n')
+            assert lastnl != -1
+            data = data[lastnl + 1:]
+            column = 0
+        else:
+            column = self.column
+
         i = 0
         while True:
             j = data.find('\t', i)
@@ -39,9 +52,7 @@ class Location(object):
             column -= column % _tabwidth
             i = j + 1
 
-        if column == self.column:
-            return self
-        return Location(self.path, self.line, column)
+        return Location(self.path, line, column)
 
     def __str__(self):
         return "%s:%s:%s" % (self.path, self.line, self.column)
@@ -73,7 +84,7 @@ def parsecommandlineargs(args):
             stmts.append(Override(a))
 
             vname = vname.strip()
-            vnameexp = data.Expansion.fromstring(vname)
+            vnameexp = data.Expansion.fromstring(vname, "Command-line argument")
 
             stmts.append(SetVariable(vnameexp, token=t,
                                      value=val, valueloc=Location('<command-line>', i, len(vname) + len(t)),

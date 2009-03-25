@@ -62,13 +62,13 @@ def _if_else(c, t, f):
     return f()
 
 class StringExpansion(object):
-    __slots__ = ('s',)
-    loc = None
+    __slots__ = ('loc', 's',)
     simple = True
     
-    def __init__(self, s):
+    def __init__(self, s, loc):
         assert isinstance(s, str)
         self.s = s
+        self.loc = loc
 
     def lstrip(self):
         self.s = self.s.lstrip()
@@ -89,7 +89,7 @@ class StringExpansion(object):
         return self.s.split()
 
     def clone(self):
-        e = Expansion()
+        e = Expansion(self.loc)
         e.appendstr(self.s)
         return e
 
@@ -115,8 +115,8 @@ class Expansion(list):
         self.hasfunc = False
 
     @staticmethod
-    def fromstring(s):
-        return StringExpansion(s)
+    def fromstring(s, path):
+        return StringExpansion(s, parserdata.Location(path, 1, 0))
 
     def clone(self):
         e = Expansion()
@@ -178,7 +178,7 @@ class Expansion(list):
         if self.hasfunc:
             return self
 
-        return StringExpansion(''.join([i for i, isfunc in self]))
+        return StringExpansion(''.join([i for i, isfunc in self]), self.loc)
 
     def resolve(self, makefile, variables, fd, setting=[]):
         """
@@ -283,7 +283,7 @@ class Variables(object):
             if flavor == self.FLAVOR_RECURSIVE:
                 val = valueexp
             else:
-                val = Expansion.fromstring(valuestr)
+                val = Expansion.fromstring(valuestr, "Expansion of variable '%s'" % (name,))
 
             return flavor, source, val
 
