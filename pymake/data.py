@@ -100,6 +100,9 @@ class StringExpansion(object):
         assert i == 0
         return self.s, False
 
+    def __str__(self):
+        return "Exp<%s>(%r)" % (self.loc, self.s)
+
 class Expansion(list):
     """
     A representation of expanded data, such as that for a recursively-expanded variable, a command, etc.
