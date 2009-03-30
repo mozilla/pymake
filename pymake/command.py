@@ -172,7 +172,7 @@ def main(args, env, cwd, cb):
                 deferredmake = process.makedeferrable(makecb, makefile=makefile,
                                                       realtargets=realtargets, tstack=tstack, i=i+1, firsterror=firsterror)
 
-                makefile.gettarget(realtargets[i]).make(makefile, tstack, [], cb=deferredmake)
+                makefile.gettarget(realtargets[i]).make(makefile, tstack, cb=deferredmake)
                                                                                   
 
         def remakecb(remade, restarts, makefile):
@@ -213,7 +213,7 @@ def main(args, env, cwd, cb):
 
             deferredmake = process.makedeferrable(makecb, makefile=makefile,
                                                   realtargets=realtargets, tstack=tstack, i=1, firsterror=None)
-            makefile.gettarget(realtargets[0]).make(makefile, tstack, [], cb=deferredmake)
+            makefile.gettarget(realtargets[0]).make(makefile, tstack, cb=deferredmake)
 
         context.defer(remakecb, True, 0, None)
 

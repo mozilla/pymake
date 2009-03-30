@@ -488,13 +488,13 @@ class RemakeRuleContext(object):
         self.running = False
         self.depsremaining = len(deps) + 1
 
-    def resolvedeps(self, target, makefile, targetstack, rulestack, serial, cb):
+    def resolvedeps(self, target, makefile, targetstack, serial, cb):
         if serial:
-            self._resolvedepsserial(target, makefile, targetstack, rulestack, cb)
+            self._resolvedepsserial(target, makefile, targetstack, cb)
         else:
-            self._resolvedepsparallel(target, makefile, targetstack, rulestack, cb)
+            self._resolvedepsparallel(target, makefile, targetstack, cb)
 
-    def _resolvedepsserial(self, target, makefile, targetstack, rulestack, cb):
+    def _resolvedepsserial(self, target, makefile, targetstack, cb):
         resolvelist = list(self.deps)
         self.didanything = False
 
@@ -507,13 +507,13 @@ class RemakeRuleContext(object):
                 self.didanything = True
             
             if len(resolvelist):
-                makefile.context.defer(resolvelist.pop(0).make, makefile, targetstack, rulestack, depfinished)
+                makefile.context.defer(resolvelist.pop(0).make, makefile, targetstack, depfinished)
             else:
                 cb(error=None, didanything=self.didanything)
 
         depfinished(None, False)
 
-    def _resolvedepsparallel(self, target, makefile, targetstack, rulestack, cb):
+    def _resolvedepsparallel(self, target, makefile, targetstack, cb):
         self.depsremaining -= 1
         if self.depsremaining == 0:
             cb(error=None, didanything=False)
@@ -526,7 +526,7 @@ class RemakeRuleContext(object):
             if self.error is not None:
                 depfinished(None, False)
             else:
-                d.make(makefile, targetstack, rulestack, depfinished)
+                d.make(makefile, targetstack, depfinished)
 
         def depfinished(error, didanything):
             if error is not None:
@@ -861,7 +861,7 @@ class Target(object):
             makefile.context.defer(cb, error=self._makeerror, didanything=self._didanything)
         del self._callbacks 
 
-    def make(self, makefile, targetstack, rulestack, cb, avoidremakeloop=False):
+    def make(self, makefile, targetstack, cb, avoidremakeloop=False):
         """
         If we are out of date, asynchronously make ourself. This is a multi-stage process, mostly handled
         by enclosed functions:
@@ -901,7 +901,7 @@ class Target(object):
         indent = getindent(targetstack)
 
         try:
-            self.resolvedeps(makefile, targetstack, rulestack, False)
+            self.resolvedeps(makefile, targetstack, [], False)
         except util.MakeError, e:
             self._makeerror = e
             self._notifydone(makefile)
@@ -954,7 +954,7 @@ class Target(object):
                     self._notifydone(makefile)
                     return
 
-                rulelist[0].resolvedeps(self, makefile, targetstack, rulestack, serial, resolvecb)
+                rulelist[0].resolvedeps(self, makefile, targetstack, serial, resolvecb)
 
             commandscb(None)
         else:
@@ -962,7 +962,7 @@ class Target(object):
                 if self._makeerror is not None:
                     resolvecb(None, False)
                 else:
-                    r.resolvedeps(self, makefile, targetstack, rulestack, serial, resolvecb)
+                    r.resolvedeps(self, makefile, targetstack, serial, resolvecb)
 
             def resolvecb(error, didanything):
                 if error is not None:
@@ -1417,11 +1417,11 @@ class Makefile(object):
 
                 if len(remakelist):
                     t = remakelist.pop(0)
-                    t.make(self, [], [], avoidremakeloop=True, cb=remakecb)
+                    t.make(self, [], avoidremakeloop=True, cb=remakecb)
                 else:
                     remakedone()
 
-            remakelist.pop(0).make(self, [], [], avoidremakeloop=True, cb=remakecb)
+            remakelist.pop(0).make(self, [], avoidremakeloop=True, cb=remakecb)
         else:
             o = util.makeobject(('remakesremaining',), remakesremaining=len(self.included))
             def remakecb(error, didanything):
@@ -1433,7 +1433,7 @@ class Makefile(object):
                     remakedone()
 
             for t, mtime in mlist:
-                t.make(self, [], [], avoidremakeloop=True, cb=remakecb)
+                t.make(self, [], avoidremakeloop=True, cb=remakecb)
 
     flagescape = re.compile(r'([\s\\])')
 
