@@ -6,8 +6,6 @@ import logging, re, os, sys
 import parserdata, parser, functions, process, util, builtins
 from cStringIO import StringIO
 
-import traceback
-
 _log = logging.getLogger('pymake.data')
 
 class DataError(util.MakeError):
@@ -482,21 +480,30 @@ class RemakeTargetSerially(object):
     def resolvecb(self, error, didanything):
         assert error in (True, False)
 
-        if error:
-            self.target.error = True
-            self.target.notifydone(self.makefile)
-            return
-
         if didanything:
             self.target.didanything = True
 
-        self.rlist.pop(0).runcommands(self.indent, self.commandscb)
+        if error:
+            self.target.error = True
+            self.makefile.error = True
+            if not self.makefile.keepgoing:
+                self.target.notifydone(self.makefile)
+                return
+            else:
+                # don't run the commands!
+                del self.rlist[0]
+                self.commandscb(error=False)
+        else:
+            self.rlist.pop(0).runcommands(self.indent, self.commandscb)
 
     def commandscb(self, error):
         assert error in (True, False)
 
         if error:
             self.target.error = True
+            self.makefile.error = True
+
+        if self.target.error and not self.makefile.keepgoing:
             self.target.notifydone(self.makefile)
             return
 
@@ -506,7 +513,7 @@ class RemakeTargetSerially(object):
             self.rlist[0].resolvedeps(True, self.resolvecb)
 
 class RemakeTargetParallel(object):
-    __slots__ = ('target', 'makefile', 'indent', 'rlist')
+    __slots__ = ('target', 'makefile', 'indent', 'rlist', 'rulesremaining', 'currunning')
 
     def __init__(self, target, makefile, indent, rlist):
         self.target = target
@@ -514,11 +521,14 @@ class RemakeTargetParallel(object):
         self.indent = indent
         self.rlist = rlist
 
+        self.rulesremaining = len(rlist)
+        self.currunning = False
+
         for r in rlist:
             makefile.context.defer(self.doresolve, r)
 
     def doresolve(self, r):
-        if self.target.error:
+        if self.makefile.error and not self.makefile.keepgoing:
             r.error = True
             self.resolvecb(True, False)
         else:
@@ -529,43 +539,48 @@ class RemakeTargetParallel(object):
 
         if error:
             self.target.error = True
+
         if didanything:
             self.target.didanything = True
 
-        while len(self.rlist) and self.rlist[0].error:
-            del self.rlist[0]
+        self.rulesremaining -= 1
+
+        # commandscb takes care of the details if we're currently building
+        # something
+        if self.currunning:
+            return
+
+        self.runnext()
+
+    def runnext(self):
+        assert not self.currunning
+
+        if self.makefile.error and not self.makefile.keepgoing:
+            self.rlist = []
+        else:
+            while len(self.rlist) and self.rlist[0].error:
+                del self.rlist[0]
 
         if not len(self.rlist):
-            self.target.notifydone(self.makefile)
+            if not self.rulesremaining:
+                self.target.notifydone(self.makefile)
             return
 
-        rtop = self.rlist[0]
-        if rtop.running or rtop.depsremaining != 0:
+        if self.rlist[0].depsremaining != 0:
             return
 
-        rtop.runcommands(self.indent, self.commandscb)
+        self.currunning = True
+        self.rlist.pop(0).runcommands(self.indent, self.commandscb)
 
     def commandscb(self, error):
         assert error in (True, False)
-
         if error:
             self.target.error = True
+            self.makefile.error = True
 
-        r = self.rlist.pop(0)
-        assert r.running
-
-        while len(self.rlist) and self.rlist[0].error:
-            del self.rlist[0]
-
-        if not len(self.rlist):
-            self.target.notifydone(self.makefile)
-            return
-
-        rtop = self.rlist[0]
-        if rtop.running or rtop.depsremaining != 0:
-            return
-
-        rtop.runcommands(self.indent, self.commandscb)
+        assert self.currunning
+        self.currunning = False
+        self.runnext()
 
 class RemakeRuleContext(object):
     def __init__(self, target, makefile, rule, deps,
@@ -596,21 +611,23 @@ class RemakeRuleContext(object):
             self.didanything = True
 
         if error:
-            self.resolvecb(error=error, didanything=self.didanything)
-            return
+            self.error = True
+            if not self.makefile.keepgoing:
+                self.resolvecb(error=True, didanything=self.didanything)
+                return
         
         if len(self.resolvelist):
             self.makefile.context.defer(self.resolvelist.pop(0).make,
                                         self.makefile, self.targetstack, self._depfinishedserial)
         else:
-            self.resolvecb(error=False, didanything=self.didanything)
+            self.resolvecb(error=self.error, didanything=self.didanything)
 
     def _resolvedepsserial(self):
         self.resolvelist = list(self.deps)
         self._depfinishedserial(False, False)
 
     def _startdepparallel(self, d):
-        if self.error:
+        if self.makefile.error:
             depfinished(True, False)
         else:
             d.make(self.makefile, self.targetstack, self._depfinishedparallel)
@@ -619,6 +636,7 @@ class RemakeRuleContext(object):
         assert error in (True, False)
 
         if error:
+            print "<%s>: Found error" % self.target.target
             self.error = True
         if didanything:
             self.didanything = True
@@ -961,9 +979,6 @@ class Target(object):
 
     def notifydone(self, makefile):
         assert self._state == MAKESTATE_WORKING, "State was %s" % self._state
-
-        print "notifydone<%s>" % self.target
-        traceback.print_stack()
 
         self._state = MAKESTATE_FINISHED
         for cb in self._callbacks:
