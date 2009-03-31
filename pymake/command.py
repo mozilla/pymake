@@ -6,7 +6,7 @@ structure, environment, and working directory. Typically they will all share a p
 except when a submake specifies -j1 when the parent make is building in parallel.
 """
 
-import os, subprocess, sys, logging, time, traceback
+import os, subprocess, sys, logging, time, traceback, re
 from optparse import OptionParser
 import data, parserdata, process, util
 
@@ -15,6 +15,7 @@ import data, parserdata, process, util
 
 makepypath = os.path.normpath(os.path.join(os.path.dirname(__file__), '../make.py'))
 
+_simpleopts = re.compile(r'^[a-zA-Z]+\s')
 def parsemakeflags(env):
     """
     Parse MAKEFLAGS from the environment into a sequence of command-line arguments.
@@ -26,7 +27,7 @@ def parsemakeflags(env):
     if makeflags == '':
         return []
 
-    if makeflags[0] not in ('-', ' '):
+    if _simpleopts.match(makeflags):
         makeflags = '-' + makeflags
 
     opts = []
@@ -134,7 +135,7 @@ def main(args, env, cwd, cb):
         else:
             workdir = os.path.join(cwd, options.directory)
 
-        shortflags.append('j%i' % (options.jobcount,))
+        longflags.append('-j%i' % (options.jobcount,))
 
         makeflags = ''.join(shortflags) + ' ' + ' '.join(longflags)
 
