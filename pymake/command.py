@@ -101,6 +101,8 @@ def main(args, env, cwd, cb):
                       dest="printversion", default=False)
         op.add_option('-j', '--jobs', type="int",
                       dest="jobcount", default=1)
+        op.add_option('-w', '--print-directory', action="store_true",
+                      dest="printdir")
         op.add_option('--no-print-directory', action="store_false",
                       dest="printdir", default=True)
 
