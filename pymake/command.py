@@ -157,21 +157,22 @@ def main(args, env, cwd, cb):
 
         overrides, targets = parserdata.parsecommandlineargs(arguments)
 
-        def makecb(error, didanything, makefile, realtargets, tstack, i, firsterror):
-            if error is not None:
-                print error
-                if firsterror is None:
-                    firsterror = error
+        def makecb(error, didanything, makefile, realtargets, tstack, i):
+            assert error in (True, False)
+
+            if error:
+                context.defer(cb, 2)
+                return
 
             if i == len(realtargets):
                 if options.printdir:
                     print "make.py[%i]: Leaving directory '%s'" % (makelevel, workdir)
                 sys.stdout.flush()
 
-                context.defer(cb, firsterror and 2 or 0)
+                context.defer(cb, 0)
             else:
                 deferredmake = process.makedeferrable(makecb, makefile=makefile,
-                                                      realtargets=realtargets, tstack=tstack, i=i+1, firsterror=firsterror)
+                                                      realtargets=realtargets, tstack=tstack, i=i+1)
 
                 makefile.gettarget(realtargets[i]).make(makefile, tstack, cb=deferredmake)
                                                                                   
@@ -183,7 +184,8 @@ def main(args, env, cwd, cb):
                 makefile = data.Makefile(restarts=restarts, make='%s %s' % (sys.executable.replace('\\', '/'), makepypath.replace('\\', '/')),
                                          makeflags=makeflags, makelevel=makelevel, workdir=workdir,
                                          context=context, env=env,
-                                         targets=targets)
+                                         targets=targets,
+                                         keepgoing=options.keepgoing)
 
                 try:
                     overrides.execute(makefile)
@@ -213,7 +215,7 @@ def main(args, env, cwd, cb):
                 tstack = ['<command-line>']
 
             deferredmake = process.makedeferrable(makecb, makefile=makefile,
-                                                  realtargets=realtargets, tstack=tstack, i=1, firsterror=None)
+                                                  realtargets=realtargets, tstack=tstack, i=1)
             makefile.gettarget(realtargets[0]).make(makefile, tstack, cb=deferredmake)
 
         context.defer(remakecb, True, 0, None)

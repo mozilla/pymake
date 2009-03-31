@@ -2,9 +2,11 @@
 A representation of makefile data structures.
 """
 
-import logging, re, os
+import logging, re, os, sys
 import parserdata, parser, functions, process, util, builtins
 from cStringIO import StringIO
+
+import traceback
 
 _log = logging.getLogger('pymake.data')
 
@@ -312,14 +314,6 @@ class Variables(object):
         assert source in (self.SOURCE_OVERRIDE, self.SOURCE_MAKEFILE, self.SOURCE_AUTOMATIC)
         assert isinstance(value, str)
 
-        def expand():
-            try:
-                d = parser.Data.fromstring(value, parserdata.Location("Expansion of variable '%s'" % (name,), 1, 0))
-                valueexp, t, o = parser.parsemakesyntax(d, 0, (), parser.iterdata)
-                return valueexp, None
-            except parser.SyntaxError, e:
-                return None, e
-        
         if name not in self._map:
             self._map[name] = self.FLAVOR_APPEND, source, value, None
             return
@@ -483,22 +477,26 @@ class RemakeTargetSerially(object):
         self.makefile = makefile
         self.indent = indent
         self.rlist = rlist
-        self.commandscb(None)
+        self.commandscb(False)
 
     def resolvecb(self, error, didanything):
-        if error is not None:
-            self.target.seterror(error)
+        assert error in (True, False)
+
+        if error:
+            self.target.error = True
             self.target.notifydone(self.makefile)
             return
 
         if didanything:
-            self.target._didanything = True
+            self.target.didanything = True
 
         self.rlist.pop(0).runcommands(self.indent, self.commandscb)
 
     def commandscb(self, error):
-        if error is not None:
-            self.target.seterror(error)
+        assert error in (True, False)
+
+        if error:
+            self.target.error = True
             self.target.notifydone(self.makefile)
             return
 
@@ -520,17 +518,21 @@ class RemakeTargetParallel(object):
             makefile.context.defer(self.doresolve, r)
 
     def doresolve(self, r):
-        if self.target.geterror() is not None:
-            self.resolvecb(None, False)
+        if self.target.error:
+            r.error = True
+            self.resolvecb(True, False)
         else:
             r.resolvedeps(False, self.resolvecb)
 
     def resolvecb(self, error, didanything):
-        self.target.seterror(error)
+        assert error in (True, False)
+
+        if error:
+            self.target.error = True
         if didanything:
             self.target.didanything = True
 
-        while len(self.rlist) and self.rlist[0].error is not None:
+        while len(self.rlist) and self.rlist[0].error:
             del self.rlist[0]
 
         if not len(self.rlist):
@@ -544,12 +546,15 @@ class RemakeTargetParallel(object):
         rtop.runcommands(self.indent, self.commandscb)
 
     def commandscb(self, error):
-        self.target.seterror(error)
+        assert error in (True, False)
+
+        if error:
+            self.target.error = True
 
         r = self.rlist.pop(0)
         assert r.running
 
-        while len(self.rlist) and self.rlist[0].error is not None:
+        while len(self.rlist) and self.rlist[0].error:
             del self.rlist[0]
 
         if not len(self.rlist):
@@ -573,21 +578,24 @@ class RemakeRuleContext(object):
         self.avoidremakeloop = avoidremakeloop
 
         self.running = False
-        self.error = None
+        self.error = False
         self.depsremaining = len(deps) + 1
 
     def resolvedeps(self, serial, cb):
         self.resolvecb = cb
+        self.didanything = False
         if serial:
             self._resolvedepsserial()
         else:
             self._resolvedepsparallel()
 
     def _depfinishedserial(self, error, didanything):
+        assert error in (True, False)
+
         if didanything:
             self.didanything = True
 
-        if error is not None:
+        if error:
             self.resolvecb(error=error, didanything=self.didanything)
             return
         
@@ -595,24 +603,23 @@ class RemakeRuleContext(object):
             self.makefile.context.defer(self.resolvelist.pop(0).make,
                                         self.makefile, self.targetstack, self._depfinishedserial)
         else:
-            self.resolvecb(error=None, didanything=self.didanything)
+            self.resolvecb(error=False, didanything=self.didanything)
 
     def _resolvedepsserial(self):
         self.resolvelist = list(self.deps)
-        self.didanything = False
-
-        self._depfinishedserial(None, False)
+        self._depfinishedserial(False, False)
 
     def _startdepparallel(self, d):
-        if self.error is not None:
-            depfinished(None, False)
+        if self.error:
+            depfinished(True, False)
         else:
             d.make(self.makefile, self.targetstack, self._depfinishedparallel)
 
     def _depfinishedparallel(self, error, didanything):
-        if self.error is None:
-            self.error = error
+        assert error in (True, False)
 
+        if error:
+            self.error = True
         if didanything:
             self.didanything = True
 
@@ -623,7 +630,7 @@ class RemakeRuleContext(object):
     def _resolvedepsparallel(self):
         self.depsremaining -= 1
         if self.depsremaining == 0:
-            self.resolvecb(error=None, didanything=False)
+            self.resolvecb(error=self.error, didanything=self.didanything)
             return
 
         self.didanything = False
@@ -632,14 +639,16 @@ class RemakeRuleContext(object):
             self.makefile.context.defer(self._startdepparallel, d)
 
     def _commandcb(self, error):
-        if error is not None:
-            self.runcb(error=error)
+        assert error in (True, False)
+
+        if error:
+            self.runcb(error=True)
             return
 
         if len(self.commands):
             self.commands.pop(0)(self._commandcb)
         else:
-            self.runcb(error=None)
+            self.runcb(error=False)
 
     def runcommands(self, indent, cb):
         assert not self.running
@@ -655,7 +664,7 @@ class RemakeRuleContext(object):
                     if mtimeislater(d.mtime, self.target.mtime):
                         self.target.beingremade()
                         break
-            cb(error=None)
+            cb(error=False)
             return
 
         remake = False
@@ -681,16 +690,18 @@ class RemakeRuleContext(object):
 
         if remake:
             self.target.beingremade()
-            self.target._didanything = True
+            self.target.didanything = True
             try:
                 self.commands = [c for c in self.rule.getcommands(self.target, self.makefile)]
             except util.MakeError, e:
-                cb(error=e)
+                print e
+                sys.stdout.flush()
+                cb(error=True)
                 return
 
-            self._commandcb(None)
+            self._commandcb(False)
         else:
-            cb(error=None)
+            cb(error=False)
 
 MAKESTATE_NONE = 0
 MAKESTATE_FINISHED = 1
@@ -948,44 +959,41 @@ class Target(object):
         self.mtime = None
         self.vpathtarget = self.target
 
-    def seterror(self, error):
-        if self._error is None:
-            self._error = error
-
-    def geterror(self):
-        return self._error
-
     def notifydone(self, makefile):
-        assert self._state == MAKESTATE_WORKING
+        assert self._state == MAKESTATE_WORKING, "State was %s" % self._state
+
+        print "notifydone<%s>" % self.target
+        traceback.print_stack()
 
         self._state = MAKESTATE_FINISHED
         for cb in self._callbacks:
-            makefile.context.defer(cb, error=self._error, didanything=self._didanything)
+            makefile.context.defer(cb, error=self.error, didanything=self.didanything)
         del self._callbacks 
 
     def make(self, makefile, targetstack, cb, avoidremakeloop=False):
         """
         If we are out of date, asynchronously make ourself. This is a multi-stage process, mostly handled
-        by enclosed functions:
+        by the helper objects RemakeTargetSerially, RemakeTargetParallel,
+        RemakeRuleContext. These helper objects should keep us from developing
+        any cyclical dependencies.
 
         * resolve dependencies (synchronous)
         * gather a list of rules to execute and related dependencies (synchronous)
-        * for each rule (rulestart)
-        ** remake dependencies (asynchronous, toplevel, callback to start each dependency is `depstart`,
-           callback when each is finished is `depfinished``
-        ** build list of commands to execute (synchronous, in `runcommands`)
-        ** execute each command (asynchronous, runcommands.commandcb)
-        * asynchronously notify rulefinished when each rule is complete
+        * for each rule (in parallel)
+        ** remake dependencies (asynchronous)
+        ** build list of commands to execute (synchronous)
+        ** execute each command (asynchronous)
+        * asynchronously notify when all rules are complete
 
         @param cb A callback function to notify when remaking is finished. It is called
-               thusly: callback(error=exception/None, didanything=True/False/None)
+               thusly: callback(error=True/False, didanything=True/False)
                If there is no asynchronous activity to perform, the callback may be called directly.
         """
 
         serial = makefile.context.jcount == 1
         
         if self._state == MAKESTATE_FINISHED:
-            cb(error=self._error, didanything=self._didanything)
+            cb(error=self.error, didanything=self.didanything)
             return
             
         if self._state == MAKESTATE_WORKING:
@@ -997,15 +1005,16 @@ class Target(object):
 
         self._state = MAKESTATE_WORKING
         self._callbacks = [cb]
-        self._error = None
-        self._didanything = False
+        self.error = False
+        self.didanything = False
 
         indent = getindent(targetstack)
 
         try:
             self.resolvedeps(makefile, targetstack, [], False)
         except util.MakeError, e:
-            self._error = e
+            print e
+            self.error = True
             self.notifydone(makefile)
             return
 
@@ -1115,9 +1124,10 @@ class _CommandWrapper(object):
 
     def _cb(self, res):
         if res != 0 and not self.ignoreErrors:
-            self.usercb(error=DataError("command '%s' failed, return code %s" % (self.cline, res), self.loc))
+            print "%s: command '%s' failed, return code %i" % (self.loc, self.cline, res)
+            self.usercb(error=True)
         else:
-            self.usercb(error=None)
+            self.usercb(error=False)
 
     def __call__(self, cb):
         self.usercb = cb
@@ -1249,7 +1259,7 @@ class Makefile(object):
     state data.
     """
 
-    def __init__(self, workdir=None, env=None, restarts=0, make=None, makeflags=None, makelevel=0, context=None, targets=()):
+    def __init__(self, workdir=None, env=None, restarts=0, make=None, makeflags=None, makelevel=0, context=None, targets=(), keepgoing=False):
         self.defaulttarget = None
 
         if env is None:
@@ -1263,6 +1273,7 @@ class Makefile(object):
         self.exportedvars = {}
         self.overrides = []
         self._targets = {}
+        self.keepgoing = keepgoing
         self._patternvariables = [] # of (pattern, variables)
         self.implicitrules = []
         self.parsingfinished = False
@@ -1380,6 +1391,8 @@ class Makefile(object):
         if len(np.rules):
             self.context = process.getcontext(1)
 
+        self.error = False
+
     def include(self, path, required=True, loc=None):
         """
         Include the makefile at `path`.
@@ -1443,8 +1456,9 @@ class Makefile(object):
         if serial:
             remakelist = [self.gettarget(f) for f in self.included]
             def remakecb(error, didanything):
-                if error is not None:
-                    print "Error remaking makefiles (ignored): ", error
+                assert error in (True, False)
+                if error:
+                    print "Error remaking makefiles (ignored)"
 
                 if len(remakelist):
                     t = remakelist.pop(0)
@@ -1456,8 +1470,9 @@ class Makefile(object):
         else:
             o = util.makeobject(('remakesremaining',), remakesremaining=len(self.included))
             def remakecb(error, didanything):
-                if error is not None:
-                    print "Error remaking makefiles (ignored): ", error
+                assert error in (True, False)
+                if error:
+                    print "Error remaking makefiles (ignored)"
 
                 o.remakesremaining -= 1
                 if o.remakesremaining == 0:
