@@ -72,7 +72,7 @@ DEALINGS IN THE SOFTWARE."""
 
 _log = logging.getLogger('pymake.execution')
 
-class RemakeContext(object):
+class _MakeContext(object):
     def __init__(self, makeflags, makelevel, workdir, context, env, targets, options, overrides, cb):
         self.makeflags = makeflags
         self.makelevel = makelevel
@@ -233,7 +233,7 @@ def main(args, env, cwd, cb):
 
         overrides, targets = parserdata.parsecommandlineargs(arguments)
 
-        RemakeContext(makeflags, makelevel, workdir, context, env, targets, options, overrides, cb)
+        _MakeContext(makeflags, makelevel, workdir, context, env, targets, options, overrides, cb)
     except (util.MakeError), e:
         print e
         if options.printdir:

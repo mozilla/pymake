@@ -1,14 +1,5 @@
 import os
 
-def makeobject(proplist, **kwargs):
-    class P(object):
-        __slots__ = proplist
-
-    p = P()
-    for k, v in kwargs.iteritems():
-        setattr(p, k, v)
-    return p
-
 class MakeError(Exception):
     def __init__(self, message, loc=None):
         self.message = message
