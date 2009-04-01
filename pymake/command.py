@@ -76,7 +76,6 @@ class _MakeContext(object):
     def __init__(self, makeflags, makelevel, workdir, context, env, targets, options, overrides, cb):
         self.makeflags = makeflags
         self.makelevel = makelevel
-        print "makelevel: %r" % makelevel
 
         self.workdir = workdir
         self.context = context
