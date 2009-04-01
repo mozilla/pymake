@@ -182,6 +182,8 @@ def main(args, env, cwd, cb):
         options, arguments1 = op.parse_args(parsemakeflags(env))
         options, arguments2 = op.parse_args(args, values=options)
 
+        op.destroy()
+
         arguments = arguments1 + arguments2
 
         if options.printversion:
