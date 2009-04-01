@@ -466,7 +466,7 @@ def _checktime(path, stmts):
 
     return True
 
-_parsecache = util.LRUCache(10, _parsefile, _checktime)
+_parsecache = util.MostUsedCache(15, _parsefile, _checktime)
 
 def parsefile(pathname):
     """

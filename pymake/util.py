@@ -88,80 +88,61 @@ except ImportError:
                 return True
         return False
 
-class _LRUItem(object):
-    __slots__ = ('key', 'o', 'next', 'prev')
+class _MostUsedItem(object):
+    __slots__ = ('key', 'o', 'count')
 
-    def __init__(self, o, key, before):
-        self.o = o
+    def __init__(self, key):
         self.key = key
-        if before is None:
-            self.prev = self
-            self.next = self
-        else:
-            self.next = before
-            self.prev = before.prev
-            before.prev = self
-            self.prev.next = self
+        self.o = None
+        self.count = 1
 
-    def movebefore(self, item):
-        if self is item:
-            return
+    def __repr__(self):
+        return "MostUsedItem(key=%r, count=%i, o=%r)" % (self.key, self.count, self.o)
 
-        self.drop()
-        self.next = item
-        self.prev = item.prev
-        item.prev = self
-        self.prev.next = self
-
-    def drop(self):
-        self.prev.next = self.next
-        self.next.prev = self.prev
-        del self.next
-        del self.prev
-
-class LRUCache(object):
+class MostUsedCache(object):
     def __init__(self, capacity, creationfunc, verifyfunc):
         self.capacity = capacity
         self.cfunc = creationfunc
         self.vfunc = verifyfunc
 
-        self.count = 0
         self.d = {}
-        self.head = None
+        self.active = [] # lazily sorted!
+
+    def setactive(self, item):
+        if item in self.active:
+            return
+
+        if len(self.active) == self.capacity:
+            self.active.sort(key=lambda i: i.count)
+            old = self.active.pop(0)
+            old.o = None
+            # print "Evicting %s" % old.key
+
+        self.active.append(item)
 
     def get(self, key):
         item = self.d.get(key, None)
-        if item is not None:
-            item.movebefore(self.head)
-            self.head = item
-            if not self.vfunc(key, item.o):
-                item.o = self.cfunc(key)
+        if item is None:
+            item = _MostUsedItem(key)
+            self.d[key] = item
+        else:
+            item.count += 1
+
+        if item.o is not None and self.vfunc(key, item.o):
             return item.o
 
-        o = self.cfunc(key)
-        item = _LRUItem(o, key, self.head)
-        self.head = item
-        self.d[key] = item
+        item.o = self.cfunc(key)
+        self.setactive(item)
+        return item.o
 
-        if self.count == self.capacity:
-            tail = self.head.prev
-            assert self.d[tail.key] == tail
-            del self.d[tail.key]
-
-            tail.drop()
-        else:
-            self.count += 1
-
-        return o
+    def verify(self):
+        for k, v in self.d.iteritems():
+            if v.o:
+                assert v in self.active
+            else:
+                assert v not in self.active
 
     def debugitems(self):
-        if self.head is None:
-            return
-
-        item = self.head
-        tail = self.head.prev
-        while True:
-            yield item.key
-            if item is tail:
-                return
-            item = item.next
+        l = [i.key for i in self.active]
+        l.sort()
+        return l
