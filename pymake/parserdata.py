@@ -471,7 +471,7 @@ class EmptyDirective(Statement):
         print >>fd, "%sEmptyDirective: %s" % (indent, self.exp)
 
 class StatementList(list):
-    __slots__ = ()
+    __slots__ = ('mtime',)
 
     def append(self, statement):
         assert isinstance(statement, Statement)
