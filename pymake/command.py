@@ -15,7 +15,7 @@ import data, parserdata, process, util
 
 makepypath = os.path.normpath(os.path.join(os.path.dirname(__file__), '../make.py'))
 
-_simpleopts = re.compile(r'^[a-zA-Z]+\s')
+_simpleopts = re.compile(r'^[a-zA-Z]+(\s|$)')
 def parsemakeflags(env):
     """
     Parse MAKEFLAGS from the environment into a sequence of command-line arguments.
