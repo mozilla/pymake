@@ -34,7 +34,7 @@ token, tokenoffset, afteroffset *may be None*. That means there is more text
 coming.
 """
 
-import logging, re, os, bisect
+import logging, re, os, bisect, sys
 import data, functions, util, parserdata
 
 _log = logging.getLogger('pymake.parser')
@@ -248,6 +248,8 @@ def itermakefilechars(d, offset, tokenlist, ignorecomments=False):
                 yield d.data[offset:start + 1], token[1:], start + 1, end
             else:
                 yield d.data[offset:end], None, None, None
+	elif sys.platform == 'win32' and token == ':' and len(d.data) > start and d.data[end] in ('\\', '/'):
+	    yield d.data[offset:end], None, None, None
         else:
             yield d.data[offset:start], token, start, end
 

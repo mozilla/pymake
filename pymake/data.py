@@ -462,7 +462,7 @@ class Pattern(object):
 
     _backre = re.compile(r'[%\\]')
     def __str__(self):
-        if not self.ispattern:
+        if not self.ispattern():
             return self._backre.sub(r'\\\1', self.data[0])
 
         return self._backre.sub(r'\\\1', self.data[0]) + '%' + self.data[1]
