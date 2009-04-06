@@ -595,6 +595,7 @@ class RemakeRuleContext(object):
         self.running = False
         self.error = False
         self.depsremaining = len(deps) + 1
+        self.remake = False
 
     def resolvedeps(self, serial, cb):
         self.resolvecb = cb
@@ -603,6 +604,11 @@ class RemakeRuleContext(object):
             self._resolvedepsserial()
         else:
             self._resolvedepsparallel()
+
+    def _weakdepfinishedserial(self, error, didanything):
+        if error:
+            self.remake = True
+        self._depfinishedserial(False, didanything)
 
     def _depfinishedserial(self, error, didanything):
         assert error in (True, False)
@@ -617,8 +623,9 @@ class RemakeRuleContext(object):
                 return
         
         if len(self.resolvelist):
-            self.makefile.context.defer(self.resolvelist.pop(0).make,
-                                        self.makefile, self.targetstack, self._depfinishedserial)
+            dep, weak = self.resolvelist.pop(0)
+            self.makefile.context.defer(dep.make,
+                                        self.makefile, self.targetstack, weak and self._weakdepfinishedserial or self._depfinishedserial)
         else:
             self.resolvecb(error=self.error, didanything=self.didanything)
 
@@ -630,7 +637,13 @@ class RemakeRuleContext(object):
         if self.makefile.error:
             depfinished(True, False)
         else:
-            d.make(self.makefile, self.targetstack, self._depfinishedparallel)
+            dep, weak = d
+            dep.make(self.makefile, self.targetstack, weak and self._weakdepfinishedparallel or self._depfinishedparallel)
+
+    def _weakdepfinishedparallel(self, error, didanything):
+        if error:
+            self.remake = True
+        self._depfinishedparallel(False, didanything)
 
     def _depfinishedparallel(self, error, didanything):
         assert error in (True, False)
@@ -678,17 +691,20 @@ class RemakeRuleContext(object):
             if self.target.mtime is None:
                 self.target.beingremade()
             else:
-                for d in self.deps:
+                for d, weak in self.deps:
                     if mtimeislater(d.mtime, self.target.mtime):
                         self.target.beingremade()
                         break
             cb(error=False)
             return
 
-        remake = False
-        if self.target.mtime is None:
-            remake = True
-            _log.info("%sRemaking %s using rule at %s: target doesn't exist or is a forced target", indent, self.target.target, self.rule.loc)
+        remake = self.remake
+        if remake:
+            _log.info("%sRemaking %s using rule at %s: weak dependency was not found.", indent, self.target.target, self.rule.loc)
+        else:
+            if self.target.mtime is None:
+                remake = True
+                _log.info("%sRemaking %s using rule at %s: target doesn't exist or is a forced target", indent, self.target.target, self.rule.loc)
 
         if not remake:
             if self.rule.doublecolon:
@@ -700,7 +716,7 @@ class RemakeRuleContext(object):
                         remake = True
 
         if not remake:
-            for d in self.deps:
+            for d, weak in self.deps:
                 if mtimeislater(d.mtime, self.target.mtime):
                     _log.info("%sRemaking %s using rule at %s because %s is newer.", indent, self.target.target, self.rule.loc, d.target)
                     remake = True
@@ -1039,13 +1055,13 @@ class Target(object):
             return
 
         if self.isdoublecolon():
-            rulelist = [RemakeRuleContext(self, makefile, r, [makefile.gettarget(p) for p in r.prerequisites], targetstack, avoidremakeloop) for r in self.rules]
+            rulelist = [RemakeRuleContext(self, makefile, r, [(makefile.gettarget(p), False) for p in r.prerequisites], targetstack, avoidremakeloop) for r in self.rules]
         else:
             alldeps = []
 
             commandrule = None
             for r in self.rules:
-                rdeps = [makefile.gettarget(p) for p in r.prerequisites]
+                rdeps = [(makefile.gettarget(p), r.weakdeps) for p in r.prerequisites]
                 if len(r.commands):
                     assert commandrule is None
                     commandrule = r
@@ -1173,11 +1189,12 @@ class Rule(object):
     contain rule-specific variables. This rule may be associated with multiple targets.
     """
 
-    def __init__(self, prereqs, doublecolon, loc):
+    def __init__(self, prereqs, doublecolon, loc, weakdeps):
         self.prerequisites = prereqs
         self.doublecolon = doublecolon
         self.commands = []
         self.loc = loc
+        self.weakdeps = weakdeps
 
     def addcommand(self, c):
         assert isinstance(c, (Expansion, StringExpansion))
@@ -1190,6 +1207,8 @@ class Rule(object):
         # TODO: $* in non-pattern rules?
 
 class PatternRuleInstance(object):
+    weakdeps = False
+
     """
     A pattern rule instantiated for a particular target. It has the same API as Rule, but
     different internals, forwarding most information on to the PatternRule.
@@ -1443,7 +1462,7 @@ class Makefile(object):
 
         self.error = False
 
-    def include(self, path, required=True, loc=None):
+    def include(self, path, required=True, weak=False, loc=None):
         """
         Include the makefile at `path`.
         """
@@ -1452,7 +1471,7 @@ class Makefile(object):
             self.included.append(path)
             stmts = parser.parsefile(fspath)
             self.variables.append('MAKEFILE_LIST', Variables.SOURCE_AUTOMATIC, path, None, self)
-            stmts.execute(self)
+            stmts.execute(self, weak=weak)
             self.gettarget(path).explicit = True
         elif required:
             raise DataError("Attempting to include file '%s' which doesn't exist." % (path,), loc)

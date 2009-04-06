@@ -112,6 +112,7 @@ for makefile in makefiles:
         'env': dict(os.environ),
         'commandline': cline,
         'pass': True,
+        'skip': False,
         }
 
     gmakeoptions = ParentDict(options)
@@ -144,14 +145,20 @@ for makefile in makefiles:
             grepfor = data
         elif key == 'fail':
             d['pass'] = False
+        elif key == 'skip':
+            d['skip'] = True
         else:
             print >>sys.stderr, "%s: Unexpected #T key: %s" % (makefile, key)
             sys.exit(1)
 
     mdata.close()
 
-    gmakepass, gmakemsg = runTest(makefile, [opts.gmake],
-                                  makefile + '.gmakelog', gmakeoptions)
+    if gmakeoptions['skip']:
+        gmakepass, gmakemsg = True, ''
+    else:
+        gmakepass, gmakemsg = runTest(makefile, [opts.gmake],
+                                      makefile + '.gmakelog', gmakeoptions)
+
     if gmakeoptions['pass']:
         if not gmakepass:
             gmakefails += 1
@@ -160,10 +167,14 @@ for makefile in makefiles:
             gmakefails += 1
             gmakemsg = "UNEXPECTED PASS"
         else:
-            gmakemsg = "OK (known fail)"
+            gmakemsg = "KNOWN FAIL"
 
-    pymakepass, pymakemsg = runTest(makefile, pymake,
-                                    makefile + '.pymakelog', pymakeoptions)
+    if pymakeoptions['skip']:
+        pymakepass, pymakemsg = True, ''
+    else:
+        pymakepass, pymakemsg = runTest(makefile, pymake,
+                                        makefile + '.pymakelog', pymakeoptions)
+
     if pymakeoptions['pass']:
         if not pymakepass:
             pymakefails += 1

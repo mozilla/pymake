@@ -446,7 +446,7 @@ _conditionkeywords = {
 
 _conditiontokens = tuple(_conditionkeywords.iterkeys())
 _directivestokenlist = TokenList.get(_conditiontokens + \
-    ('else', 'endif', 'define', 'endef', 'override', 'include', '-include', 'vpath', 'export', 'unexport'))
+    ('else', 'endif', 'define', 'endef', 'override', 'include', '-include', 'includedeps', '-includedeps', 'vpath', 'export', 'unexport'))
 _conditionkeywordstokenlist = TokenList.get(_conditiontokens)
 
 _varsettokens = (':=', '+=', '?=', '=')
@@ -559,10 +559,18 @@ def parsestream(fd, filename):
                 condstack[-1].append(parserdata.SetVariable(vname, value=value, valueloc=d.getloc(0), token='=', targetexp=None))
                 continue
 
-            if kword in ('include', '-include'):
+            if kword in ('include', '-include', 'includedeps', '-includedeps'):
+                if kword.startswith('-'):
+                    required = False
+                    kword = kword[1:]
+                else:
+                    required = True
+
+                deps = kword == 'includedeps'
+
                 currule = False
                 incfile, t, offset = parsemakesyntax(d, offset, (), itermakefilechars)
-                condstack[-1].append(parserdata.Include(incfile, kword == 'include'))
+                condstack[-1].append(parserdata.Include(incfile, required, deps))
 
                 continue
 
