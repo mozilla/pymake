@@ -21,36 +21,35 @@ class Location(object):
         self.line = line
         self.column = column
 
-    def __add__(self, data):
+    def offset(self, s, start, end):
         """
         Returns a new location offset by
         the specified string.
         """
 
-        if data == '':
+        if start == end:
             return self
         
-        skiplines = data.count('\n')
+        skiplines = s.count('\n', start, end)
         line = self.line + skiplines
         if skiplines:
-            lastnl = data.rfind('\n')
+            lastnl = s.rfind('\n', start, end)
             assert lastnl != -1
-            data = data[lastnl + 1:]
+            start = lastnl + 1
             column = 0
         else:
             column = self.column
 
-        i = 0
         while True:
-            j = data.find('\t', i)
+            j = s.find('\t', start, end)
             if j == -1:
-                column += len(data) - i
+                column += end - start
                 break
 
-            column += j - i
+            column += j - start
             column += _tabwidth
             column -= column % _tabwidth
-            i = j + 1
+            start = j + 1
 
         return Location(self.path, line, column)
 
