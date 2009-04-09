@@ -129,7 +129,8 @@ class IterTest(TestBase):
     def runSingle(self, ifunc, idata, expected):
         d = pymake.parser.Data.fromstring(idata, 'IterTest data')
 
-        actual = ''.join( [c for c, t, o, oo in ifunc(d, 0, ('dummy-token',))] )
+        it = pymake.parser._alltokens.finditer(d.s, 0, d.lend)
+        actual = ''.join( [c for c, t, o, oo in ifunc(d, 0, ('dummy-token',), it)] )
         self.assertEqual(actual, expected)
 
         if ifunc == pymake.parser.itermakefilechars:
@@ -205,7 +206,7 @@ class MakeSyntaxTest(TestBase):
 
     def compareRecursive(self, actual, expected, path):
         self.assertEqual(len(actual), len(expected),
-                         "compareRecursive: %s" % (path,))
+                         "compareRecursive: %s %r" % (path, actual))
         for i in xrange(0, len(actual)):
             ipath = path + [i]
 

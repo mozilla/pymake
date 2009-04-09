@@ -25,7 +25,7 @@ Four iterator functions are available:
 The iterators handle line continuations and comments in different ways, but share a common calling
 convention:
 
-Called with (data, startoffset, tokenlist)
+Called with (data, startoffset, tokenlist, finditer)
 
 yield 4-tuples (flatstr, token, tokenoffset, afteroffset)
 flatstr is data, guaranteed to have no tokens (may be '')
@@ -101,15 +101,16 @@ def enumeratelines(s, filename):
 
     yield Data(s, off, len(s), parserdata.Location(filename, lineno, 0))
 
-_alltokens = re.compile(r'''\\*\# |
+_alltokens = re.compile(r'''\\*\# | # hash mark preceeded by any number of backslashes
                             := |
                             \+= |
                             \?= |
                             :: |
-                            :(?![\\/]) |
-                            [=#{}();,|\$'"]''', re.VERBOSE)
+                            (?:\$(?:$|[\(\{](?:%s)\s+|.)) | # dollar sign followed by EOF, a function keyword with whitespace, or any character
+                            :(?![\\/]) | # colon followed by anything except a slash (Windows path detection)
+                            [=#{}();,|'"]''' % '|'.join(functions.functionmap.iterkeys()), re.VERBOSE)
 
-def iterdata(d, offset, tokenlist):
+def iterdata(d, offset, tokenlist, it):
     """
     Iterate over flat data without line continuations, comments, or any special escaped characters.
 
@@ -123,10 +124,10 @@ def iterdata(d, offset, tokenlist):
         return
 
     s = d.s
-    for m in _alltokens.finditer(s, offset, d.lend):
+    for m in it:
         mstart, mend = m.span(0)
         token = s[mstart:mend]
-        if token in tokenlist:
+        if token in tokenlist or (token[0] == '$' and '$' in tokenlist):
             yield s[offset:mstart], token, mstart, mend
         else:
             yield s[offset:mend], None, None, mend
@@ -142,7 +143,7 @@ def _replacemakecontinuations(m):
         return ' '
     return ' '.rjust((end - start) / 2 + 1, '\\')
 
-def itermakefilechars(d, offset, tokenlist, ignorecomments=False):
+def itermakefilechars(d, offset, tokenlist, it, ignorecomments=False):
     """
     Iterate over data in makefile syntax. Comments are found at unescaped # characters, and escaped newlines
     are converted to single-space continuations.
@@ -154,7 +155,7 @@ def itermakefilechars(d, offset, tokenlist, ignorecomments=False):
         return
 
     s = d.s
-    for m in _alltokens.finditer(s, offset, d.lend):
+    for m in it:
         mstart, mend = m.span(0)
         token = s[mstart:mend]
 
@@ -169,7 +170,7 @@ def itermakefilechars(d, offset, tokenlist, ignorecomments=False):
                 return
             else:
                 yield starttext + token[-l / 2:], None, None, mend
-        elif token in tokenlist:
+        elif token in tokenlist or (token[0] == '$' and '$' in tokenlist):
             yield starttext, token, mstart, mend
         else:
             yield starttext + token, None, None, mend
@@ -207,7 +208,7 @@ def flattenmakesyntax(d, offset):
     elements.append(s[offset:])
     return ''.join(elements)
 
-def itercommandchars(d, offset, tokenlist):
+def itercommandchars(d, offset, tokenlist, it):
     """
     Iterate over command syntax. # comment markers are not special, and escaped newlines are included
     in the output text.
@@ -219,12 +220,12 @@ def itercommandchars(d, offset, tokenlist):
         return
 
     s = d.s
-    for m in _alltokens.finditer(s, offset, d.lend):
+    for m in it:
         mstart, mend = m.span(0)
         token = s[mstart:mend]
         starttext = s[offset:mstart].replace('\n\t', '\n')
 
-        if token in tokenlist:
+        if token in tokenlist or (token[0] == '$' and '$' in tokenlist):
             yield starttext, token, mstart, mend
         else:
             yield starttext + token, None, None, mend
@@ -233,7 +234,7 @@ def itercommandchars(d, offset, tokenlist):
     yield s[offset:d.lend].replace('\n\t', '\n'), None, None, None
 
 _redefines = re.compile('define|endef')
-def iterdefinechars(it, startloc):
+def iterdefinelines(it, startloc):
     """
     Process the insides of a define. Most characters are included literally. Escaped newlines are treated
     as they would be in makefile syntax. Internal define/endef pairs are ignored.
@@ -451,7 +452,7 @@ def parsestring(s, filename):
                 vname.rstrip()
 
                 startloc = d.getloc(d.lstart)
-                value = iterdefinechars(fdlines, startloc)
+                value = iterdefinelines(fdlines, startloc)
                 condstack[-1].append(parserdata.SetVariable(vname, value=value, valueloc=startloc, token='=', targetexp=None))
                 continue
 
@@ -603,13 +604,12 @@ class ParseStackFrame(object):
         self.function = function
         self.loc = loc
 
-_functionre = None
-
 _matchingbrace = {
     '(': ')',
     '{': '}',
     }
 
+@profile
 def parsemakesyntax(d, offset, stopon, iterfunc):
     """
     Given Data, parse it into a data.Expansion.
@@ -627,19 +627,15 @@ def parsemakesyntax(d, offset, stopon, iterfunc):
     token and offset will be None
     """
 
-    global _functionre
-    if _functionre is None:
-        functiontokens = list(functions.functionmap.iterkeys())
-        functiontokens.sort(key=len, reverse=True)
-        _functionre = re.compile(r'(%s)(?:$|\s+)' % '|'.join(functiontokens))
-
     assert callable(iterfunc)
 
     stacktop = ParseStackFrame(_PARSESTATE_TOPLEVEL, None, data.Expansion(loc=d.getloc(d.lstart)),
                                tokenlist=stopon + ('$',),
                                openbrace=None, closebrace=None)
 
-    di = iterfunc(d, offset, stacktop.tokenlist)
+    tokeniterator = _alltokens.finditer(d.s, offset, d.lend)
+
+    di = iterfunc(d, offset, stacktop.tokenlist, tokeniterator)
     while True: # this is not a for loop because `di` changes during the function
         assert stacktop is not None
         try:
@@ -653,24 +649,21 @@ def parsemakesyntax(d, offset, stopon, iterfunc):
 
         parsestate = stacktop.parsestate
 
-        if token == '$':
-            if offset == d.lend:
+        if token[0] == '$':
+            if tokenoffset + 1 == d.lend:
                 # an unterminated $ expands to nothing
                 break
 
             loc = d.getloc(tokenoffset)
-            c = d.s[offset]
-            offset += 1
+            c = token[1]
             if c == '$':
+                assert len(token) == 2
                 stacktop.expansion.appendstr('$')
             elif c in ('(', '{'):
                 closebrace = _matchingbrace[c]
 
-                # look forward for a function name
-                m = _functionre.match(d.s, offset, d.lend)
-                if m:
-                    fname = m.group(1)
-                    offset = m.end(0)
+                if len(token) > 2:
+                    fname = token[2:].rstrip()
                     fn = functions.functionmap[fname](loc)
                     e = data.Expansion()
                     if len(fn) + 1 == fn.maxargs:
@@ -688,6 +681,7 @@ def parsemakesyntax(d, offset, stopon, iterfunc):
                                                e, tokenlist,
                                                openbrace=c, closebrace=closebrace, loc=loc)
             else:
+                assert len(token) == 2
                 e = data.Expansion.fromstring(c, loc)
                 stacktop.expansion.appendfunc(functions.VariableRef(loc, e))
         elif token in ('(', '{'):
@@ -763,10 +757,10 @@ def parsemakesyntax(d, offset, stopon, iterfunc):
             assert False, "Unexpected parse state %s" % stacktop.parsestate
 
         if stacktop.parent is not None and iterfunc == itercommandchars:
-            di = itermakefilechars(d, offset, stacktop.tokenlist,
+            di = itermakefilechars(d, offset, stacktop.tokenlist, tokeniterator,
                                    ignorecomments=True)
         else:
-            di = iterfunc(d, offset, stacktop.tokenlist)
+            di = iterfunc(d, offset, stacktop.tokenlist, tokeniterator)
 
     if stacktop.parent is not None:
         raise SyntaxError("Unterminated function call", d.getloc(offset))

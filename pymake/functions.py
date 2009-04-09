@@ -2,7 +2,7 @@
 Makefile functions.
 """
 
-import parser, data, util
+import parser, util
 import subprocess, os, logging
 from globrelative import glob
 from cStringIO import StringIO
@@ -693,3 +693,5 @@ functionmap = {
     'warning': WarningFunction,
     'info': InfoFunction,
 }
+
+import data
