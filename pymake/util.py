@@ -2,7 +2,7 @@ import os
 
 class MakeError(Exception):
     def __init__(self, message, loc=None):
-        self.message = message
+        self.msg = message
         self.loc = loc
 
     def __str__(self):
@@ -10,7 +10,7 @@ class MakeError(Exception):
         if self.loc is not None:
             locstr = "%s:" % (self.loc,)
 
-        return "%s%s" % (locstr, self.message)
+        return "%s%s" % (locstr, self.msg)
 
 def joiniter(fd, it):
     """
