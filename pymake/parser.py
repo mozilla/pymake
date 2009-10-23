@@ -412,7 +412,7 @@ def parsestring(s, filename):
                     raise SyntaxError("unmatched 'endif' directive",
                                       d.getloc(offset))
 
-                condstack.pop()
+                condstack.pop().endloc = d.getloc(offset)
                 continue
             
             if kword == 'else':
@@ -430,10 +430,10 @@ def parsestring(s, filename):
                         raise SyntaxError("Unexpected condition after 'else' directive.",
                                           d.getloc(offset))
 
+                    startoffset = offset
                     offset = d.skipwhitespace(m.end(1))
                     c = _conditionkeywords[kword](d, offset)
-                    print "%s elif thingie: kword: %s %s" % (d.getloc(offset), kword, c)
-                    condstack[-1].addcondition(d.getloc(offset), c)
+                    condstack[-1].addcondition(d.getloc(startoffset), c)
                 continue
 
             if kword in _conditionkeywords:
@@ -609,7 +609,6 @@ _matchingbrace = {
     '{': '}',
     }
 
-@profile
 def parsemakesyntax(d, offset, stopon, iterfunc):
     """
     Given Data, parse it into a data.Expansion.
