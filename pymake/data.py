@@ -698,6 +698,13 @@ class RemakeRuleContext(object):
             cb(error=False)
             return
 
+        if self.rule.doublecolon:
+            if len(self.deps) == 0:
+                if self.avoidremakeloop:
+                    _log.info("%sNot remaking %s using rule at %s because it would introduce an infinite loop.", indent, self.target.target, self.rule.loc)
+                    cb(error=False)
+                    return
+
         remake = self.remake
         if remake:
             _log.info("%sRemaking %s using rule at %s: weak dependency was not found.", indent, self.target.target, self.rule.loc)
@@ -709,11 +716,8 @@ class RemakeRuleContext(object):
         if not remake:
             if self.rule.doublecolon:
                 if len(self.deps) == 0:
-                    if self.avoidremakeloop:
-                        _log.info("%sNot remaking %s using rule at %s because it would introduce an infinite loop.", indent, self.target.target, self.rule.loc)
-                    else:
-                        _log.info("%sRemaking %s using rule at %s because there are no prerequisites listed for a double-colon rule.", indent, self.target.target, self.rule.loc)
-                        remake = True
+                    _log.info("%sRemaking %s using rule at %s because there are no prerequisites listed for a double-colon rule.", indent, self.target.target, self.rule.loc)
+                    remake = True
 
         if not remake:
             for d, weak in self.deps:
@@ -751,6 +755,8 @@ class Target(object):
     The rules associated with this target may be Rule instances or, in the case of static pattern
     rules, PatternRule instances.
     """
+
+    wasremade = False
 
     def __init__(self, target, makefile):
         assert isinstance(target, str)
@@ -992,6 +998,7 @@ class Target(object):
         self.realmtime = self.mtime
         self.mtime = None
         self.vpathtarget = self.target
+        self.wasremade = True
 
     def notifydone(self, makefile):
         assert self._state == MAKESTATE_WORKING, "State was %s" % self._state
@@ -1001,7 +1008,7 @@ class Target(object):
             makefile.context.defer(cb, error=self.error, didanything=self.didanything)
         del self._callbacks 
 
-    def make(self, makefile, targetstack, cb, avoidremakeloop=False):
+    def make(self, makefile, targetstack, cb, avoidremakeloop=False, printerror=True):
         """
         If we are out of date, asynchronously make ourself. This is a multi-stage process, mostly handled
         by the helper objects RemakeTargetSerially, RemakeTargetParallel,
@@ -1044,7 +1051,8 @@ class Target(object):
         try:
             self.resolvedeps(makefile, targetstack, [], False)
         except util.MakeError, e:
-            print e
+            if printerror:
+                print e
             self.error = True
             self.notifydone(makefile)
             return
@@ -1288,10 +1296,11 @@ class PatternRule(object):
         return [p.resolve(dir, stem) for p in self.prerequisites]
 
 class _RemakeContext(object):
-    def __init__(self, makefile, remakelist, mtimelist, cb):
+    def __init__(self, makefile, cb):
         self.makefile = makefile
-        self.remakelist = remakelist
-        self.mtimelist = mtimelist # list of (target, mtime)
+        self.included = [(makefile.gettarget(f), required)
+                         for f, required in makefile.included]
+        self.toremake = list(self.included)
         self.cb = cb
 
         self.remakecb(error=False, didanything=False)
@@ -1299,16 +1308,22 @@ class _RemakeContext(object):
     def remakecb(self, error, didanything):
         assert error in (True, False)
 
-        if error:
+        if error and self.required:
             print "Error remaking makefiles (ignored)"
 
-        if len(self.remakelist):
-            self.remakelist.pop(0).make(self.makefile, [], avoidremakeloop=True, cb=self.remakecb)
+        if len(self.toremake):
+            target, self.required = self.toremake.pop(0)
+            target.make(self.makefile, [], avoidremakeloop=True, cb=self.remakecb, printerror=False)
         else:
-            for t, oldmtime in self.mtimelist:
-                if t.mtime != oldmtime:
+            for t, required in self.included:
+                if t.wasremade:
+                    _log.info("Included file %s was remade, restarting make", t.target)
                     self.cb(remade=True)
                     return
+                elif required and t.mtime is None:
+                    self.cb(remade=False, error=DataError("No rule to remaking missing include file %s", t.target))
+                    return
+
             self.cb(remade=False)
 
 class Makefile(object):
@@ -1466,15 +1481,13 @@ class Makefile(object):
         """
         Include the makefile at `path`.
         """
+        self.included.append((path, required))
         fspath = os.path.join(self.workdir, path)
         if os.path.exists(fspath):
-            self.included.append(path)
             stmts = parser.parsefile(fspath)
             self.variables.append('MAKEFILE_LIST', Variables.SOURCE_AUTOMATIC, path, None, self)
             stmts.execute(self, weak=weak)
             self.gettarget(path).explicit = True
-        elif required:
-            raise DataError("Attempting to include file '%s' which doesn't exist." % (path,), loc)
 
     def addvpath(self, pattern, dirs):
         """
@@ -1503,7 +1516,7 @@ class Makefile(object):
 
     def remakemakefiles(self, cb):
         mlist = []
-        for f in self.included:
+        for f, required in self.included:
             t = self.gettarget(f)
             t.explicit = True
             t.resolvevpath(self)
@@ -1511,7 +1524,7 @@ class Makefile(object):
 
             mlist.append((t, oldmtime))
 
-        _RemakeContext(self, [self.gettarget(f) for f in self.included], mlist, cb)
+        _RemakeContext(self, cb)
 
     def getsubenvironment(self, variables):
         env = dict(self.env)
