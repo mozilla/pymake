@@ -32,6 +32,8 @@ def checkmsyscompat():
     letting Python use the system shell."""
     if 'SHELL' in os.environ:
         shell = os.environ['SHELL']
+    elif 'MOZILLABUILD' in os.environ:
+        shell = os.environ['MOZILLABUILD'] + '/msys/bin/sh.exe'
     elif 'COMSPEC' in os.environ:
         shell = os.environ['COMSPEC']
     else:
