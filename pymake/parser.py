@@ -284,7 +284,7 @@ def ifeq(d, offset):
     if token == '(':
         arg1, t, offset = parsemakesyntax(d, offset, (',',), itermakefilechars)
         if t is None:
-            raise SyntaxError("Expected two arguments in conditional", d.getloc(offset))
+            raise SyntaxError("Expected two arguments in conditional", d.getloc(d.lend))
 
         arg1.rstrip()
 
