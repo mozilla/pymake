@@ -12,4 +12,3 @@ def call(module, method, args, env, cwd, loc):
         raise MakeError("No method named '%s' in module %s" % (method, module), loc)
     m.__dict__[method](args, env, cwd)
 
-

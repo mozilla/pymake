@@ -3,7 +3,7 @@ A representation of makefile data structures.
 """
 
 import logging, re, os, sys
-import parserdata, parser, functions, process, util, builtins, native
+import parserdata, parser, functions, process, util, implicit, native
 from cStringIO import StringIO
 
 _log = logging.getLogger('pymake.data')
@@ -1198,11 +1198,11 @@ class _NativeWrapper(object):
         if res != 0 and not self.ignoreErrors:
             self.usercb(error=DataError("command '%s' failed, return code %s" % (self.cline, res), self.loc))
         else:
-            self.usercb(error=None)
+            self.usercb(error=False)
 
     def __call__(self, cb):
         native.call(self.module, self.method, self.cline, self.env, self.cwd, self.loc)
-        cb(error=None)
+        cb(error=False)
 
 def getcommandsforrule(rule, target, makefile, prerequisites, stem):
     v = Variables(parent=target.variables)
@@ -1429,7 +1429,7 @@ class Makefile(object):
         self.variables.set('MAKECMDGOALS', Variables.FLAVOR_SIMPLE,
                            Variables.SOURCE_AUTOMATIC, ' '.join(targets))
 
-        for vname, val in builtins.variables.iteritems():
+        for vname, val in implicit.variables.iteritems():
             self.variables.set(vname,
                                Variables.FLAVOR_SIMPLE,
                                Variables.SOURCE_IMPLICIT, val)
