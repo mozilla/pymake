@@ -1184,15 +1184,14 @@ class _NativeWrapper(object):
         self.cwd = cwd
         self.context = context
         # get the module and method to call
-        parts = cline.split(' ', 2)
+        parts, _ = process.clinetoargv(cline)
+        if parts is None:
+            raise DataError("native command '%s': shell metacharacters in command line" % cline, self.loc)
         if len(parts) < 2:
             raise DataError("native command '%s': no method name specified" % cline, self.loc)
         self.module = parts[0]
         self.method = parts[1]
-        if len(parts) == 3:
-            self.cline = parts[2]
-        else:
-            self.cline = ''
+        self.cline = parts[2:]
 
     def _cb(self, res):
         if res != 0 and not self.ignoreErrors:
