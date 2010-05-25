@@ -23,6 +23,9 @@ all: IMMVAR += $(BASIC)
 all: UNSET += more
 all: OBASIC += allmore
 
+CHECKLIT = $(NULL) check
+all: CHECKLIT += appendliteral
+
 RECVAR = blimey
 
 TESTEMPTY = \
@@ -35,6 +38,7 @@ all: other
 	test "$(IMMVAR)" = "bloo foo var baz  valall"
 	test "$(UNSET)" = "more"
 	test "$(OBASIC)" = "oval"
+	test "$(CHECKLIT)" = " check appendliteral"
 	test "$(TESTEMPTY)" = ""
 	@echo TEST-PASS
 

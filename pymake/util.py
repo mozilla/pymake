@@ -1,17 +1,8 @@
 import os
 
-def makeobject(proplist, **kwargs):
-    class P(object):
-        __slots__ = proplist
-
-    p = P()
-    for k, v in kwargs.iteritems():
-        setattr(p, k, v)
-    return p
-
 class MakeError(Exception):
     def __init__(self, message, loc=None):
-        self.message = message
+        self.msg = message
         self.loc = loc
 
     def __str__(self):
@@ -19,52 +10,30 @@ class MakeError(Exception):
         if self.loc is not None:
             locstr = "%s:" % (self.loc,)
 
-        return "%s%s" % (locstr, self.message)
+        return "%s%s" % (locstr, self.msg)
 
-def itersplit(it):
+def normaljoin(path, suffix):
     """
-    Given an iterator that returns strings, yield words as if string.split() had been called on the concatenation
-    of the strings.
+    Combine the given path with the suffix, and normalize if necessary to shrink the path to avoid hitting path length limits
     """
+    result = os.path.join(path, suffix)
+    if len(result) > 255:
+        result = os.path.normpath(result)
+    return result
 
-    curword = None
-    for s in it:
-        if not len(s):
-            continue
-
-        initws = s[0].isspace()
-        trailws = s[-1].isspace()
-
-        words = s.split()
-        if curword is not None:
-            if initws:
-                yield curword
-            else:
-                words[0] = curword + words[0]
-
-        if trailws:
-            curword = None
-        else:
-            curword = words.pop()
-
-        for w in words:
-            yield w
-
-    if curword is not None:
-        yield curword
-
-def joiniter(it, j=' '):
+def joiniter(fd, it):
     """
-    Given an iterator that returns strings, yield the words with j inbetween each.
+    Given an iterator that returns strings, write the words with a space in between each.
     """
+    
     it = iter(it)
     for i in it:
-        yield i
+        fd.write(i)
         break
 
     for i in it:
-        yield j
-        yield i
+        fd.write(' ')
+        fd.write(i)
 
 def checkmsyscompat():
     """For msys compatibility on windows, honor the SHELL environment variable,
@@ -72,6 +41,8 @@ def checkmsyscompat():
     letting Python use the system shell."""
     if 'SHELL' in os.environ:
         shell = os.environ['SHELL']
+    elif 'MOZILLABUILD' in os.environ:
+        shell = os.environ['MOZILLABUILD'] + '/msys/bin/sh.exe'
     elif 'COMSPEC' in os.environ:
         shell = os.environ['COMSPEC']
     else:
@@ -118,3 +89,62 @@ except ImportError:
             if i:
                 return True
         return False
+
+class _MostUsedItem(object):
+    __slots__ = ('key', 'o', 'count')
+
+    def __init__(self, key):
+        self.key = key
+        self.o = None
+        self.count = 1
+
+    def __repr__(self):
+        return "MostUsedItem(key=%r, count=%i, o=%r)" % (self.key, self.count, self.o)
+
+class MostUsedCache(object):
+    def __init__(self, capacity, creationfunc, verifyfunc):
+        self.capacity = capacity
+        self.cfunc = creationfunc
+        self.vfunc = verifyfunc
+
+        self.d = {}
+        self.active = [] # lazily sorted!
+
+    def setactive(self, item):
+        if item in self.active:
+            return
+
+        if len(self.active) == self.capacity:
+            self.active.sort(key=lambda i: i.count)
+            old = self.active.pop(0)
+            old.o = None
+            # print "Evicting %s" % old.key
+
+        self.active.append(item)
+
+    def get(self, key):
+        item = self.d.get(key, None)
+        if item is None:
+            item = _MostUsedItem(key)
+            self.d[key] = item
+        else:
+            item.count += 1
+
+        if item.o is not None and self.vfunc(key, item.o):
+            return item.o
+
+        item.o = self.cfunc(key)
+        self.setactive(item)
+        return item.o
+
+    def verify(self):
+        for k, v in self.d.iteritems():
+            if v.o:
+                assert v in self.active
+            else:
+                assert v not in self.active
+
+    def debugitems(self):
+        l = [i.key for i in self.active]
+        l.sort()
+        return l

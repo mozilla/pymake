@@ -1,13 +1,11 @@
-# Basic commands implemented in Python
-import sys, os, os.path
+"""
+Implicit variables; perhaps in the future this will also include some implicit
+rules, at least match-anything cancellation rules.
+"""
 
-__all__ = ["touch"]
+variables = {
+    'RM': 'rm -f',
+    '.LIBPATTERNS': 'lib%.so lib%.a',
+    '.PYMAKE': '1',
+    }
 
-def touch(args, variables, cwd):
-    for f in args.split():
-        fn = os.path.join(cwd, f)
-        if os.path.exists(fn):
-            os.utime(fn, None)
-        else:
-            fo = open(fn, 'w')
-            fo.close()

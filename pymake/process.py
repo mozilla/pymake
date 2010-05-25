@@ -10,7 +10,7 @@ if sys.platform=='win32':
 
 _log = logging.getLogger('pymake.process')
 
-_blacklist = re.compile(r'[=\\$><;*?[{~`|&]')
+_blacklist = re.compile(r'[$><;*?[{~`|&]|\\\n')
 def clinetoargv(cline):
     """
     If this command line can safely skip the shell, return an argv array.
@@ -21,7 +21,12 @@ def clinetoargv(cline):
     if m is not None:
         return None, m.group(0)
 
-    return shlex.split(cline, comments=True), None
+    args = shlex.split(cline, comments=True)
+
+    if len(args) and args[0].find('=') != -1:
+        return None, '='
+
+    return args, None
 
 shellwords = (':', '.', 'break', 'cd', 'continue', 'exec', 'exit', 'export',
               'getopts', 'hash', 'pwd', 'readonly', 'return', 'shift', 
@@ -48,6 +53,8 @@ def call(cline, env, cwd, loc, cb, context, echo):
     if shellreason is not None:
         _log.debug("%s: using shell: %s: '%s'", loc, shellreason, cline)
         if msys:
+            if len(cline) > 3 and cline[1] == ':' and cline[2] == '/':
+                cline = '/' + cline[0] + cline[2:]
             cline = [shell, "-c", cline]
         context.call(cline, shell=not msys, env=env, cwd=cwd, cb=cb, echo=echo)
         return
@@ -57,16 +64,16 @@ def call(cline, env, cwd, loc, cb, context, echo):
         return
 
     if argv[0] == command.makepypath:
-        command.main(argv[1:], env, cwd, context, cb)
+        command.main(argv[1:], env, cwd, cb)
         return
 
     if argv[0:2] == [sys.executable.replace('\\', '/'),
                      command.makepypath.replace('\\', '/')]:
-        command.main(argv[2:], env, cwd, context, cb)
+        command.main(argv[2:], env, cwd, cb)
         return
 
     if argv[0].find('/') != -1:
-        executable = os.path.join(cwd, argv[0])
+        executable = util.normaljoin(cwd, argv[0])
     else:
         executable = None
 
@@ -81,10 +88,6 @@ def statustoresult(status):
         return -sig
 
     return status >>8
-
-def getcontext(jcount):
-    assert jcount > 0
-    return ParallelContext(jcount)
 
 class ParallelContext(object):
     """
@@ -112,6 +115,7 @@ class ParallelContext(object):
             cb(*args, **kwargs)
 
     def defer(self, cb, *args, **kwargs):
+        assert self.jcount > 1 or not len(self.pending), "Serial execution error defering %r %r %r: currently pending %r" % (cb, args, kwargs, self.pending)
         self.pending.append((cb, args, kwargs))
 
     def _docall(self, argv, executable, shell, env, cwd, cb, echo):
@@ -195,6 +199,8 @@ class ParallelContext(object):
                             break
 
                     if found: break
+            else:
+                assert any(len(c.pending) for c in ParallelContext._allcontexts)
 
 def makedeferrable(usercb, **userkwargs):
     def cb(*args, **kwargs):
@@ -202,3 +208,18 @@ def makedeferrable(usercb, **userkwargs):
         return usercb(*args, **kwargs)
 
     return cb
+
+_serialContext = None
+_parallelContext = None
+
+def getcontext(jcount):
+    global _serialContext, _parallelContext
+    if jcount == 1:
+        if _serialContext is None:
+            _serialContext = ParallelContext(1)
+        return _serialContext
+    else:
+        if _parallelContext is None:
+            _parallelContext = ParallelContext(jcount)
+        return _parallelContext
+
