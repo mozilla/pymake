@@ -12,4 +12,4 @@ def touch(args, variables, cwd):
             open(fn, 'w').close()
 
 def sleep(args, variables, cwd):
-    time.sleep(int(args[0]))
+    time.sleep(float(args[0]))
