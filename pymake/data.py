@@ -3,7 +3,7 @@ A representation of makefile data structures.
 """
 
 import logging, re, os, sys
-import parserdata, parser, functions, process, util, implicit, native
+import parserdata, parser, functions, process, util, implicit
 from cStringIO import StringIO
 
 _log = logging.getLogger('pymake.data')
@@ -1174,15 +1174,9 @@ class _CommandWrapper(object):
         self.usercb = cb
         process.call(self.cline, loc=self.loc, cb=self._cb, context=self.context, **self.kwargs)
 
-#XXX: merge with the above or something
-class _NativeWrapper(object):
-    def __init__(self, cline, ignoreErrors, loc, context, env, cwd, **kwargs):
-        self.ignoreErrors = ignoreErrors
-        self.loc = loc
-        self.kwargs = kwargs
-        self.env = env
-        self.cwd = cwd
-        self.context = context
+class _NativeWrapper(_CommandWrapper):
+    def __init__(self, cline, ignoreErrors, loc, context, **kwargs):
+        _CommandWrapper.__init__(self, cline, ignoreErrors, loc, context, **kwargs)
         # get the module and method to call
         parts, _ = process.clinetoargv(cline)
         if parts is None:
@@ -1191,17 +1185,11 @@ class _NativeWrapper(object):
             raise DataError("native command '%s': no method name specified" % cline, self.loc)
         self.module = parts[0]
         self.method = parts[1]
-        self.cline = parts[2:]
-
-    def _cb(self, res):
-        if res != 0 and not self.ignoreErrors:
-            self.usercb(error=DataError("command '%s' failed, return code %s" % (self.cline, res), self.loc))
-        else:
-            self.usercb(error=False)
+        self.cline_list = parts[2:]
 
     def __call__(self, cb):
-        native.call(self.module, self.method, self.cline, self.env, self.cwd, self.loc)
-        cb(error=False)
+        self.usercb = cb
+        process.call_native(self.module, self.method, self.cline_list, loc=self.loc, cb=self._cb, context=self.context, **self.kwargs)
 
 def getcommandsforrule(rule, target, makefile, prerequisites, stem):
     v = Variables(parent=target.variables)

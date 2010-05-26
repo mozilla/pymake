@@ -3,6 +3,8 @@ Skipping shell invocations is good, when possible. This wrapper around subproces
 parsing command lines into argv and making sure that no shell magic is being used.
 """
 
+#TODO: ship pyprocessing?
+from multiprocessing import Pool, Condition
 import subprocess, shlex, re, logging, sys, traceback, os
 import command, util
 if sys.platform=='win32':
@@ -79,6 +81,9 @@ def call(cline, env, cwd, loc, cb, context, echo):
 
     context.call(argv, executable=executable, shell=False, env=env, cwd=cwd, cb=cb, echo=echo)
 
+def call_native(module, method, argv, env, cwd, loc, cb, context, echo):
+    context.call_native(module, method, argv, env=env, cwd=cwd, cb=cb, echo=echo)
+
 def statustoresult(status):
     """
     Convert the status returned from waitpid into a prettier numeric result.
@@ -89,17 +94,92 @@ def statustoresult(status):
 
     return status >>8
 
+class Job(object):
+    """
+    A single job to be executed on the process pool.
+    """
+    done = False # set to true when the job completes
+
+    def __init__(self):
+        self.exitcode = -127
+
+    def notify(self, condition, result):
+        condition.acquire()
+        self.done = True
+        self.exitcode = result
+        condition.notify()
+        condition.release()
+
+    def get_callback(self, condition):
+        return lambda result: self.notify(condition, result)
+
+class PopenJob(Job):
+    """
+    A job that executes a command using subprocess.Popen.
+    """
+    def __init__(self, argv, executable, shell, env, cwd):
+        Job.__init__(self)
+        self.argv = argv
+        self.executable = executable
+        self.shell = shell
+        self.env = env
+        self.cwd = cwd
+
+    def run(self):
+        try:
+            p = subprocess.Popen(self.argv, executable=self.executable, shell=self.shell, env=self.env, cwd=self.cwd)
+            return p.wait()
+        except OSError, e:
+            print >>sys.stderr, e
+            return -127
+
+class PythonJob(Job):
+    """
+    A job that calls a Python method.
+    """
+    def __init__(self, module, method, argv, env, cwd):
+        self.module = module
+        self.method = method
+        self.argv = argv
+        self.env = env
+        self.cwd = cwd
+
+    def run(self):
+        try:
+            #XXX: keep a separate path to load modules from?
+            __import__(self.module)
+            m = sys.modules[self.module]
+            if not m:
+                print >>sys.stderr, "No module named '%s'" % module
+                return -127
+            if not self.method in m.__dict__:
+                print >>sys.stderr, "No method named '%s' in module %s" % (method, module)
+                return -127
+            m.__dict__[self.method](self.argv, self.env, self.cwd)
+        except:
+            #XXX: should support a custom exception to set exitcode
+            return -127
+        return 0
+
+def job_runner(job):
+    """
+    Run a job. Called in a Process pool.
+    """
+    return job.run()
+
 class ParallelContext(object):
     """
     Manages the parallel execution of processes.
     """
 
     _allcontexts = set()
+    _condition = Condition()
 
     def __init__(self, jcount):
         self.jcount = jcount
         self.exit = False
 
+        self.pool = Pool(processes=jcount)
         self.pending = [] # list of (cb, args, kwargs)
         self.running = [] # list of (subprocess, cb)
 
@@ -107,6 +187,8 @@ class ParallelContext(object):
 
     def finish(self):
         assert len(self.pending) == 0 and len(self.running) == 0, "pending: %i running: %i" % (len(self.pending), len(self.running))
+        self.pool.close()
+        self.pool.join()
         self._allcontexts.remove(self)
 
     def run(self):
@@ -119,16 +201,18 @@ class ParallelContext(object):
         self.pending.append((cb, args, kwargs))
 
     def _docall(self, argv, executable, shell, env, cwd, cb, echo):
-            if echo is not None:
-                print echo
-            try:
-                p = subprocess.Popen(argv, executable=executable, shell=shell, env=env, cwd=cwd)
-            except OSError, e:
-                print >>sys.stderr, e
-                cb(-127)
-                return
+        if echo is not None:
+            print echo
+        job = PopenJob(argv, executable=executable, shell=shell, env=env, cwd=cwd)
+        self.pool.apply_async(job_runner, args=(job,), callback=job.get_callback(ParallelContext._condition))
+        self.running.append((job, cb))
 
-            self.running.append((p, cb))
+    def _docallnative(self, module, method, argv, env, cwd, cb, echo):
+        if echo is not None:
+            print echo
+        job = PythonJob(module, method, argv, env, cwd)
+        self.pool.apply_async(job_runner, args=(job,), callback=job.get_callback(ParallelContext._condition))
+        self.running.append((job, cb))
 
     def call(self, argv, shell, env, cwd, cb, echo, executable=None):
         """
@@ -137,24 +221,29 @@ class ParallelContext(object):
 
         self.defer(self._docall, argv, executable, shell, env, cwd, cb, echo)
 
-    if sys.platform == 'win32':
-        @staticmethod
-        def _waitany():
-            return win32process.WaitForAnyProcess([p for c in ParallelContext._allcontexts for p, cb in c.running])
+    def call_native(self, module, method, argv, env, cwd, cb, echo):
+        """
+        Asynchronously call the native function
+        """
 
-        @staticmethod
-        def _comparepid(pid, process):
-            return pid == process
+        self.defer(self._docallnative, module, method, argv, env, cwd, cb, echo)
 
-    else:
-        @staticmethod
-        def _waitany():
-            return os.waitpid(-1, 0)
+    @staticmethod
+    def _waitany():
+        ParallelContext._condition.acquire()
+        ParallelContext._condition.wait()
+        jobs = []
+        for c in ParallelContext._allcontexts:
+            for i in xrange(0, len(c.running)):
+                if c.running[i][0].done:
+                    jobs.append(c.running[i])
+            for j in jobs:
+                if j in c.running:
+                    c.running.remove(j)
 
-        @staticmethod
-        def _comparepid(pid, process):
-            return pid == process.pid
-
+        ParallelContext._condition.release()
+        return jobs
+        
     @staticmethod
     def spin():
         """
@@ -166,39 +255,10 @@ class ParallelContext(object):
             for c in clist:
                 c.run()
 
-            # In python 2.4, subprocess instances wait on child processes under the hood when they are created... this
-            # unfortunate behavior means that before using os.waitpid, we need to check the status using .poll()
-            # see http://bytes.com/groups/python/675403-os-wait-losing-child
-            found = False
-            for c in clist:
-                for i in xrange(0, len(c.running)):
-                    p, cb = c.running[i]
-                    result = p.poll()
-                    if result != None:
-                        del c.running[i]
-                        cb(result)
-                        found = True
-                        break
-
-                if found: break
-            if found: continue
-
             dowait = util.any((len(c.running) for c in ParallelContext._allcontexts))
-
             if dowait:
-                pid, status = ParallelContext._waitany()
-                result = statustoresult(status)
-
-                for c in ParallelContext._allcontexts:
-                    for i in xrange(0, len(c.running)):
-                        p, cb = c.running[i]
-                        if ParallelContext._comparepid(pid, p):
-                            del c.running[i]
-                            cb(result)
-                            found = True
-                            break
-
-                    if found: break
+                for job, cb in ParallelContext._waitany():
+                    cb(job.exitcode)
             else:
                 assert any(len(c.pending) for c in ParallelContext._allcontexts)
 
