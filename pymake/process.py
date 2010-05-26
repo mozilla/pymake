@@ -133,6 +133,15 @@ class PopenJob(Job):
             print >>sys.stderr, e
             return -127
 
+class PythonException(Exception):
+    def __init__(self, message, exitcode):
+        Exception.__init__(self)
+        self.message = message
+        self.exitcode = exitcode
+
+    def __str__(self):
+        return self.message
+
 class PythonJob(Job):
     """
     A job that calls a Python method.
@@ -146,7 +155,8 @@ class PythonJob(Job):
 
     def run(self):
         try:
-            #XXX: keep a separate path to load modules from?
+            os.chdir(self.cwd)
+            #XXX: should look in VPATH
             __import__(self.module)
             m = sys.modules[self.module]
             if not m:
@@ -155,9 +165,12 @@ class PythonJob(Job):
             if not self.method in m.__dict__:
                 print >>sys.stderr, "No method named '%s' in module %s" % (method, module)
                 return -127
-            m.__dict__[self.method](self.argv, self.env, self.cwd)
+            m.__dict__[self.method](self.argv, self.env)
+        except PythonException, e:
+            print >>sys.stderr, e
+            return e.exitcode
         except:
-            #XXX: should support a custom exception to set exitcode
+            print >>sys.stderr, sys.exc_info()[1]
             return -127
         return 0
 

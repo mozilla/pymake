@@ -1,10 +1,7 @@
 #T commandline: ['-j2']
 
 # ensure that calling python commands doesn't block other targets
-
-ifdef .PYMAKE
-SLEEP := %pymake.builtins sleep
-else
+ifndef SLEEP
 SLEEP := sleep
 endif
 

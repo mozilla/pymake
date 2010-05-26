@@ -1,6 +1,4 @@
-ifdef .PYMAKE
-TOUCH = %pymake.builtins touch
-else
+ifndef TOUCH
 TOUCH = touch
 endif
 
