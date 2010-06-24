@@ -243,18 +243,30 @@ class ParallelContext(object):
 
     @staticmethod
     def _waitany():
+        def _checkdone():
+            jobs = []
+            for c in ParallelContext._allcontexts:
+                for i in xrange(0, len(c.running)):
+                    if c.running[i][0].done:
+                        jobs.append(c.running[i])
+                for j in jobs:
+                    if j in c.running:
+                        c.running.remove(j)
+            return jobs
+
+        # We must acquire the lock, and then check to see if any jobs have
+        # finished.  If we don't check after acquiring the lock it's possible
+        # that all outstanding jobs will have completed before we wait and we'll
+        # wait for notifications that have already occurred.
         ParallelContext._condition.acquire()
-        ParallelContext._condition.wait()
-        jobs = []
-        for c in ParallelContext._allcontexts:
-            for i in xrange(0, len(c.running)):
-                if c.running[i][0].done:
-                    jobs.append(c.running[i])
-            for j in jobs:
-                if j in c.running:
-                    c.running.remove(j)
+        jobs = _checkdone()
+
+        if jobs == []:
+            ParallelContext._condition.wait()
+            jobs = _checkdone()
 
         ParallelContext._condition.release()
+
         return jobs
         
     @staticmethod
