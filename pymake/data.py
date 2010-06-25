@@ -1175,21 +1175,30 @@ class _CommandWrapper(object):
         process.call(self.cline, loc=self.loc, cb=self._cb, context=self.context, **self.kwargs)
 
 class _NativeWrapper(_CommandWrapper):
-    def __init__(self, cline, ignoreErrors, loc, context, **kwargs):
-        _CommandWrapper.__init__(self, cline, ignoreErrors, loc, context, **kwargs)
+    def __init__(self, cline, ignoreErrors, loc, context,
+                 pycommandpath, **kwargs):
+        _CommandWrapper.__init__(self, cline, ignoreErrors, loc, context,
+                                 **kwargs)
         # get the module and method to call
-        parts, _ = process.clinetoargv(cline)
+        parts, badchar = process.clinetoargv(cline)
         if parts is None:
-            raise DataError("native command '%s': shell metacharacters in command line" % cline, self.loc)
+            raise DataError("native command '%s': shell metacharacter '%s' in command line" % (cline, badchar), self.loc)
         if len(parts) < 2:
             raise DataError("native command '%s': no method name specified" % cline, self.loc)
+        if pycommandpath:
+            self.pycommandpath = re.split('[%s\s]+' % os.pathsep,
+                                          pycommandpath)
+        else:
+            self.pycommandpath = None
         self.module = parts[0]
         self.method = parts[1]
         self.cline_list = parts[2:]
 
     def __call__(self, cb):
         self.usercb = cb
-        process.call_native(self.module, self.method, self.cline_list, loc=self.loc, cb=self._cb, context=self.context, **self.kwargs)
+        process.call_native(self.module, self.method, self.cline_list,
+                            loc=self.loc, cb=self._cb, context=self.context,
+                            pycommandpath=self.pycommandpath, **self.kwargs)
 
 def getcommandsforrule(rule, target, makefile, prerequisites, stem):
     v = Variables(parent=target.variables)
@@ -1211,8 +1220,13 @@ def getcommandsforrule(rule, target, makefile, prerequisites, stem):
                 yield _CommandWrapper(cline, ignoreErrors=ignoreErrors, env=env, cwd=makefile.workdir, loc=c.loc, context=makefile.context,
                                       echo=echo)
             else:
-                yield _NativeWrapper(cline, ignoreErrors=ignoreErrors, env=env, cwd=makefile.workdir, loc=c.loc, context=makefile.context,
-                                      echo=echo)
+                f, s, e = v.get("PYCOMMANDPATH", True)
+                if e:
+                    e = e.resolvestr(makefile, v, ["PYCOMMANDPATH"])
+                yield _NativeWrapper(cline, ignoreErrors=ignoreErrors,
+                                     env=env, cwd=makefile.workdir,
+                                     loc=c.loc, context=makefile.context,
+                                     echo=echo, pycommandpath=e)
 
 class Rule(object):
     """

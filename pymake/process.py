@@ -5,7 +5,7 @@ parsing command lines into argv and making sure that no shell magic is being use
 
 #TODO: ship pyprocessing?
 from multiprocessing import Pool, Condition
-import subprocess, shlex, re, logging, sys, traceback, os
+import subprocess, shlex, re, logging, sys, traceback, os, imp
 import command, util
 if sys.platform=='win32':
     import win32process
@@ -81,8 +81,10 @@ def call(cline, env, cwd, loc, cb, context, echo):
 
     context.call(argv, executable=executable, shell=False, env=env, cwd=cwd, cb=cb, echo=echo)
 
-def call_native(module, method, argv, env, cwd, loc, cb, context, echo):
-    context.call_native(module, method, argv, env=env, cwd=cwd, cb=cb, echo=echo)
+def call_native(module, method, argv, env, cwd, loc, cb, context, echo,
+                pycommandpath=None):
+    context.call_native(module, method, argv, env=env, cwd=cwd, cb=cb,
+                        echo=echo, pycommandpath=pycommandpath)
 
 def statustoresult(status):
     """
@@ -142,27 +144,45 @@ class PythonException(Exception):
     def __str__(self):
         return self.message
 
+def load_module_recursive(module, path):
+    """
+    Emulate the behavior of __import__, but allow
+    passing a custom path to search for modules.
+    """
+    bits = module.split('.')
+    for i, bit in enumerate(bits):
+        dotname = '.'.join(bits[:i+1])
+        try:
+          f, path, desc = imp.find_module(bit, path)
+          m = imp.load_module(dotname, f, path, desc)
+          if f is None:
+              path = m.__path__
+        except ImportError:
+            return
+
 class PythonJob(Job):
     """
     A job that calls a Python method.
     """
-    def __init__(self, module, method, argv, env, cwd):
+    def __init__(self, module, method, argv, env, cwd, pycommandpath=None):
         self.module = module
         self.method = method
         self.argv = argv
         self.env = env
         self.cwd = cwd
+        self.pycommandpath = pycommandpath or []
 
     def run(self):
         try:
             os.chdir(self.cwd)
-            #XXX: should look in VPATH
-            __import__(self.module)
+            if self.module not in sys.modules:
+                load_module_recursive(self.module,
+                                      sys.path + self.pycommandpath)
+            if self.module not in sys.modules:
+                print >>sys.stderr, "No module named '%s'" % self.module
+                return -127                
             m = sys.modules[self.module]
-            if not m:
-                print >>sys.stderr, "No module named '%s'" % module
-                return -127
-            if not self.method in m.__dict__:
+            if self.method not in m.__dict__:
                 print >>sys.stderr, "No method named '%s' in module %s" % (method, module)
                 return -127
             m.__dict__[self.method](self.argv, self.env)
@@ -220,10 +240,11 @@ class ParallelContext(object):
         self.pool.apply_async(job_runner, args=(job,), callback=job.get_callback(ParallelContext._condition))
         self.running.append((job, cb))
 
-    def _docallnative(self, module, method, argv, env, cwd, cb, echo):
+    def _docallnative(self, module, method, argv, env, cwd, cb, echo,
+                      pycommandpath=None):
         if echo is not None:
             print echo
-        job = PythonJob(module, method, argv, env, cwd)
+        job = PythonJob(module, method, argv, env, cwd, pycommandpath)
         self.pool.apply_async(job_runner, args=(job,), callback=job.get_callback(ParallelContext._condition))
         self.running.append((job, cb))
 
@@ -234,12 +255,14 @@ class ParallelContext(object):
 
         self.defer(self._docall, argv, executable, shell, env, cwd, cb, echo)
 
-    def call_native(self, module, method, argv, env, cwd, cb, echo):
+    def call_native(self, module, method, argv, env, cwd, cb,
+                    echo, pycommandpath=None):
         """
         Asynchronously call the native function
         """
 
-        self.defer(self._docallnative, module, method, argv, env, cwd, cb, echo)
+        self.defer(self._docallnative, module, method, argv, env, cwd, cb,
+                   echo, pycommandpath)
 
     @staticmethod
     def _waitany():
