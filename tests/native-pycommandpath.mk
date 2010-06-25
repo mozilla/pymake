@@ -10,6 +10,6 @@ PYCOMMANDPATH = $(TESTPATH) $(TESTPATH)/subdir
 all:
 	$(CMD) results $(EXPECTED)
 	test "$$(cat results)" = "$(EXPECTED)"
-	$(CMD) results2 $(EXPECTED)
+	$(CMD2) results2 $(EXPECTED)
 	test "$$(cat results2)" = "$(EXPECTED)"
 	@echo TEST-PASS
