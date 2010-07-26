@@ -6,7 +6,7 @@ from process import PythonException
 
 __all__ = ["rm", "sleep", "touch"]
 
-def rm(args, variables):
+def rm(args):
   """
   Emulate most of the behavior of rm(1).
   Only supports the -r (--recursive) and -f (--force) arguments.
@@ -37,7 +37,7 @@ def rm(args, variables):
     elif not force:
       raise PythonException, ("rm: cannot remove '%s': No such file or directory" % f, 1)
 
-def sleep(args, variables):
+def sleep(args):
     """
     Emulate the behavior of sleep(1).
     """
@@ -57,7 +57,7 @@ def sleep(args, variables):
             raise PythonException, ("sleep: invalid time interval '%s'" % a, 1)
     time.sleep(total)
 
-def touch(args, variables):
+def touch(args):
     """
     Emulate the behavior of touch(1).
     """

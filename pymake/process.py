@@ -173,8 +173,10 @@ class PythonJob(Job):
         self.pycommandpath = pycommandpath or []
 
     def run(self):
+        oldenv = os.environ
         try:
             os.chdir(self.cwd)
+            os.environ = self.env
             if self.module not in sys.modules:
                 load_module_recursive(self.module,
                                       sys.path + self.pycommandpath)
@@ -185,13 +187,15 @@ class PythonJob(Job):
             if self.method not in m.__dict__:
                 print >>sys.stderr, "No method named '%s' in module %s" % (method, module)
                 return -127
-            m.__dict__[self.method](self.argv, self.env)
+            m.__dict__[self.method](self.argv)
         except PythonException, e:
             print >>sys.stderr, e
             return e.exitcode
         except:
             print >>sys.stderr, sys.exc_info()[1]
             return -127
+        finally:
+            os.environ = oldenv
         return 0
 
 def job_runner(job):
