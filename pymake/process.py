@@ -4,8 +4,10 @@ parsing command lines into argv and making sure that no shell magic is being use
 """
 
 #TODO: ship pyprocessing?
-from multiprocessing import Pool, Condition
+import multiprocessing, multiprocessing.dummy
 import subprocess, shlex, re, logging, sys, traceback, os, imp
+# XXXkhuey Work around http://bugs.python.org/issue1731717
+subprocess._cleanup = lambda: None
 import command, util
 if sys.platform=='win32':
     import win32process
@@ -210,13 +212,14 @@ class ParallelContext(object):
     """
 
     _allcontexts = set()
-    _condition = Condition()
+    _condition = multiprocessing.Condition()
 
     def __init__(self, jcount):
         self.jcount = jcount
         self.exit = False
 
-        self.pool = Pool(processes=jcount)
+        self.processpool = multiprocessing.Pool(processes=jcount)
+        self.threadpool = multiprocessing.dummy.Pool(processes=jcount)
         self.pending = [] # list of (cb, args, kwargs)
         self.running = [] # list of (subprocess, cb)
 
@@ -224,8 +227,10 @@ class ParallelContext(object):
 
     def finish(self):
         assert len(self.pending) == 0 and len(self.running) == 0, "pending: %i running: %i" % (len(self.pending), len(self.running))
-        self.pool.close()
-        self.pool.join()
+        self.processpool.close()
+        self.threadpool.close()
+        self.processpool.join()
+        self.threadpool.join()
         self._allcontexts.remove(self)
 
     def run(self):
@@ -241,7 +246,7 @@ class ParallelContext(object):
         if echo is not None:
             print echo
         job = PopenJob(argv, executable=executable, shell=shell, env=env, cwd=cwd)
-        self.pool.apply_async(job_runner, args=(job,), callback=job.get_callback(ParallelContext._condition))
+        self.threadpool.apply_async(job_runner, args=(job,), callback=job.get_callback(ParallelContext._condition))
         self.running.append((job, cb))
 
     def _docallnative(self, module, method, argv, env, cwd, cb, echo,
@@ -249,7 +254,7 @@ class ParallelContext(object):
         if echo is not None:
             print echo
         job = PythonJob(module, method, argv, env, cwd, pycommandpath)
-        self.pool.apply_async(job_runner, args=(job,), callback=job.get_callback(ParallelContext._condition))
+        self.processpool.apply_async(job_runner, args=(job,), callback=job.get_callback(ParallelContext._condition))
         self.running.append((job, cb))
 
     def call(self, argv, shell, env, cwd, cb, echo, executable=None):
@@ -269,7 +274,7 @@ class ParallelContext(object):
                    echo, pycommandpath)
 
     @staticmethod
-    def _waitany():
+    def _waitany(condition):
         def _checkdone():
             jobs = []
             for c in ParallelContext._allcontexts:
@@ -285,14 +290,14 @@ class ParallelContext(object):
         # finished.  If we don't check after acquiring the lock it's possible
         # that all outstanding jobs will have completed before we wait and we'll
         # wait for notifications that have already occurred.
-        ParallelContext._condition.acquire()
+        condition.acquire()
         jobs = _checkdone()
 
         if jobs == []:
-            ParallelContext._condition.wait()
+            condition.wait()
             jobs = _checkdone()
 
-        ParallelContext._condition.release()
+        condition.release()
 
         return jobs
         
@@ -309,7 +314,8 @@ class ParallelContext(object):
 
             dowait = util.any((len(c.running) for c in ParallelContext._allcontexts))
             if dowait:
-                for job, cb in ParallelContext._waitany():
+                # Wait on local jobs first for perf
+                for job, cb in ParallelContext._waitany(ParallelContext._condition):
                     cb(job.exitcode)
             else:
                 assert any(len(c.pending) for c in ParallelContext._allcontexts)
