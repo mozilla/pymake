@@ -123,6 +123,7 @@ for makefile in makefiles:
 
     mdata = open(makefile)
     for line in mdata:
+        line = line.strip()
         m = tre.search(line)
         if m is None:
             break
