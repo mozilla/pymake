@@ -75,16 +75,18 @@ def runTest(makefile, make, logfile, options):
         
     logfd = open(logfile)
     stdout = logfd.read()
-    print stdout
     logfd.close()
 
     if stdout.find('TEST-FAIL') != -1:
+        print stdout
         return False, "FAIL (TEST-FAIL printed)"
 
     if options['grepfor'] and stdout.find(options['grepfor']) == -1:
-            return False, "FAIL (%s not in output)" % options['grepfor']
+        print stdout
+        return False, "FAIL (%s not in output)" % options['grepfor']
 
     if options['returncode'] == 0 and stdout.find('TEST-PASS') == -1:
+        print stdout
         return False, 'FAIL (No TEST-PASS printed)'
 
     if options['returncode'] != 0:
