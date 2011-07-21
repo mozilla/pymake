@@ -14,18 +14,20 @@ if sys.platform=='win32':
 
 _log = logging.getLogger('pymake.process')
 
-_blacklist = re.compile(r'[$><;*?[{~`|&]|\\\n')
+_escapednewlines = re.compile(r'\\\n')
+_blacklist = re.compile(r'[$><;*?[{~`|&]')
 def clinetoargv(cline):
     """
     If this command line can safely skip the shell, return an argv array.
     @returns argv, badchar
     """
 
-    m = _blacklist.search(cline)
+    str = _escapednewlines.sub('', cline)
+    m = _blacklist.search(str)
     if m is not None:
         return None, m.group(0)
 
-    args = shlex.split(cline, comments=True)
+    args = shlex.split(str, comments=True)
 
     if len(args) and args[0].find('=') != -1:
         return None, '='

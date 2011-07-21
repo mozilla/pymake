@@ -75,6 +75,7 @@ def runTest(makefile, make, logfile, options):
         
     logfd = open(logfile)
     stdout = logfd.read()
+    print stdout
     logfd.close()
 
     if stdout.find('TEST-FAIL') != -1:
