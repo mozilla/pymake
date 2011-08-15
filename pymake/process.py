@@ -199,6 +199,7 @@ class PythonJob(Job):
             return e.exitcode
         except:
             print >>sys.stderr, sys.exc_info()[1]
+            print >>sys.stderr, traceback.print_exc()
             return -127
         finally:
             os.environ = oldenv
