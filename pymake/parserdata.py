@@ -466,6 +466,9 @@ class UnexportDirective(Statement):
         for v in vlist:
             makefile.exportedvars[v] = False
 
+    def dump(self, fd, indent):
+        print >>fd, "%sUnexport %s" % (indent, self.exp)
+
 class EmptyDirective(Statement):
     __slots__ = ('exp',)
 
