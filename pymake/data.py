@@ -109,14 +109,13 @@ class Expansion(list):
     A representation of expanded data, such as that for a recursively-expanded variable, a command, etc.
     """
 
-    __slots__ = ('loc', 'hasfunc')
+    __slots__ = ('loc',)
     simple = False
 
     def __init__(self, loc=None):
         # A list of (element, isfunc) tuples
         # element is either a string or a function
         self.loc = loc
-        self.hasfunc = False
 
     @staticmethod
     def fromstring(s, path):
@@ -137,7 +136,6 @@ class Expansion(list):
     def appendfunc(self, func):
         assert isinstance(func, functions.Function)
         self.append((func, True))
-        self.hasfunc = True
 
     def concat(self, o):
         """Concatenate the other expansion on to this one."""
@@ -145,7 +143,6 @@ class Expansion(list):
             self.appendstr(o.s)
         else:
             self.extend(o)
-            self.hasfunc = self.hasfunc or o.hasfunc
 
     def isempty(self):
         return (not len(self)) or self[0] == ('', False)
@@ -179,10 +176,33 @@ class Expansion(list):
             del self[-1]
 
     def finish(self):
-        if self.hasfunc:
-            return self
+        # Merge any adjacent literal strings:
+        strings = []
+        elements = []
+        for (e, isfunc) in self:
+            if isfunc:
+                if strings:
+                    s = ''.join(strings)
+                    if s:
+                        elements.append((s, False))
+                    strings = []
+                elements.append((e, True))
+            else:
+                strings.append(e)
 
-        return StringExpansion(''.join([i for i, isfunc in self]), self.loc)
+        if not elements:
+            # This can only happen if there were no function elements.
+            return StringExpansion(''.join(strings), self.loc)
+
+        if strings:
+            s = ''.join(strings)
+            if s:
+                elements.append((s, False))
+
+        if len(elements) < len(self):
+            self[:] = elements
+
+        return self
 
     def resolve(self, makefile, variables, fd, setting=[]):
         """
