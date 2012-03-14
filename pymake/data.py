@@ -101,7 +101,7 @@ class StringExpansion(object):
         assert i == 0
         return self.s, False
 
-    def __str__(self):
+    def __repr__(self):
         return "Exp<%s>(%r)" % (self.loc, self.s)
 
 class Expansion(list):
