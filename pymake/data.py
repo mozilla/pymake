@@ -714,7 +714,10 @@ class RemakeRuleContext(object):
             else:
                 for d, weak in self.deps:
                     if mtimeislater(d.mtime, self.target.mtime):
-                        self.target.beingremade()
+                        if d.mtime is None:
+                            self.target.beingremade()
+                        else:
+                            _log.info("%sNot remaking %s ubecause it would have no effect, even though %s is newer.", indent, self.target.target, d.target)
                         break
             cb(error=False)
             return
