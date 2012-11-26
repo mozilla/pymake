@@ -1414,7 +1414,7 @@ class _NativeWrapper(_CommandWrapper):
         # get the module and method to call
         parts, badchar = process.clinetoargv(self.cline, self.kwargs['cwd'])
         if parts is None:
-            raise DataError("native command '%s': shell metacharacter '%s' in command line" % (cline, badchar), self.loc)
+            raise DataError("native command '%s': shell metacharacter '%s' in command line" % (self.cline, badchar), self.loc)
         if len(parts) < 2:
             raise DataError("native command '%s': no method name specified" % cline, self.loc)
         module = parts[0]
