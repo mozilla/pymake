@@ -1416,7 +1416,7 @@ class _NativeWrapper(_CommandWrapper):
         if parts is None:
             raise DataError("native command '%s': shell metacharacter '%s' in command line" % (self.cline, badchar), self.loc)
         if len(parts) < 2:
-            raise DataError("native command '%s': no method name specified" % cline, self.loc)
+            raise DataError("native command '%s': no method name specified" % self.cline, self.loc)
         module = parts[0]
         method = parts[1]
         cline_list = parts[2:]
