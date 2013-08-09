@@ -4,6 +4,7 @@ A representation of makefile data structures.
 
 import logging, re, os, sys
 import parserdata, parser, functions, process, util, implicit
+import globrelative
 from cStringIO import StringIO
 
 if sys.version_info[0] < 3:
@@ -1770,16 +1771,21 @@ class Makefile(object):
         """
         Include the makefile at `path`.
         """
-        self.included.append((path, required))
-        fspath = util.normaljoin(self.workdir, path)
-        if os.path.exists(fspath):
-            if weak:
-                stmts = parser.parsedepfile(fspath)
-            else:
-                stmts = parser.parsefile(fspath)
-            self.variables.append('MAKEFILE_LIST', Variables.SOURCE_AUTOMATIC, path, None, self)
-            stmts.execute(self, weak=weak)
-            self.gettarget(path).explicit = True
+        if self._globcheck.search(path):
+            paths = globrelative.glob(self.workdir, path)
+        else:
+            paths = [path]
+        for path in paths:
+            self.included.append((path, required))
+            fspath = util.normaljoin(self.workdir, path)
+            if os.path.exists(fspath):
+                if weak:
+                    stmts = parser.parsedepfile(fspath)
+                else:
+                    stmts = parser.parsefile(fspath)
+                self.variables.append('MAKEFILE_LIST', Variables.SOURCE_AUTOMATIC, path, None, self)
+                stmts.execute(self, weak=weak)
+                self.gettarget(path).explicit = True
 
     def addvpath(self, pattern, dirs):
         """
