@@ -5,7 +5,12 @@ A representation of makefile data structures.
 import logging, re, os, sys
 import parserdata, parser, functions, process, util, implicit
 import globrelative
-from cStringIO import StringIO
+
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from io import StringIO
+
 
 if sys.version_info[0] < 3:
     str_type = basestring
