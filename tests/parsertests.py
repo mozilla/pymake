@@ -2,7 +2,6 @@ import pymake.data, pymake.parser, pymake.parserdata, pymake.functions
 import unittest
 import logging
 
-from cStringIO import StringIO
 
 def multitest(cls):
     for name in cls.testdata.iterkeys():

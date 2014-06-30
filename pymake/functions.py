@@ -6,7 +6,7 @@ from __future__ import print_function
 import parser, util
 import subprocess, os, logging, sys
 from globrelative import glob
-from cStringIO import StringIO
+
 
 log = logging.getLogger('pymake.data')
 

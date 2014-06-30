@@ -1,7 +1,7 @@
 import pymake.data, pymake.functions, pymake.util
 import unittest
 import re
-from cStringIO import StringIO
+
 
 def multitest(cls):
     for name in cls.testdata.iterkeys():
