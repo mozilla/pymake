@@ -865,7 +865,7 @@ class RemakeRuleContext(object):
         assert error in (True, False)
 
         if error:
-            print "<%s>: Found error" % self.target.target
+            print("<%s>: Found error" % self.target.target)
             self.error = True
         if didanything:
             self.didanything = True
@@ -951,7 +951,7 @@ class RemakeRuleContext(object):
             try:
                 self.commands = [c for c in self.rule.getcommands(self.target, self.makefile)]
             except util.MakeError, e:
-                print e
+                print(e)
                 sys.stdout.flush()
                 cb(error=True)
                 return
@@ -1286,7 +1286,7 @@ class Target(object):
             self.resolvedeps(makefile, targetstack, [], False)
         except util.MakeError, e:
             if printerror:
-                print e
+                print(e)
             self.error = True
             self.notifydone(makefile)
             return
@@ -1398,7 +1398,7 @@ class _CommandWrapper(object):
 
     def _cb(self, res):
         if res != 0 and not self.ignoreErrors:
-            print "%s: command '%s' failed, return code %i" % (self.loc, self.cline, res)
+            print("%s: command '%s' failed, return code %i" % (self.loc, self.cline, res))
             self.usercb(error=True)
         else:
             self.usercb(error=False)
@@ -1597,7 +1597,7 @@ class _RemakeContext(object):
                     'Error remaking required makefiles'))
                 return
             else:
-                print 'Error remaking makefiles (ignored)'
+                print('Error remaking makefiles (ignored)')
 
         if len(self.toremake):
             target, self.required = self.toremake.pop(0)

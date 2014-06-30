@@ -2,6 +2,7 @@
 Skipping shell invocations is good, when possible. This wrapper around subprocess does dirty work of
 parsing command lines into argv and making sure that no shell magic is being used.
 """
+from __future__ import print_function
 
 #TODO: ship pyprocessing?
 import multiprocessing
@@ -332,7 +333,7 @@ class PopenJob(Job):
             p = subprocess.Popen(self.argv, executable=self.executable, shell=self.shell, env=self.env, cwd=self.cwd)
             return p.wait()
         except OSError, e:
-            print >>sys.stderr, e
+            print(e, file=sys.stderr)
             return -127
         finally:
             os.environ['PATH'] = oldpath
@@ -383,30 +384,30 @@ class PythonJob(Job):
                 try:
                     __import__(self.module)
                 except Exception as e:
-                    print >>sys.stderr, 'Error importing %s: %s' % (
-                        self.module, e)
+                    print('Error importing %s: %s' % (
+                        self.module, e), file=sys.stderr)
                     return -127
 
             m = sys.modules[self.module]
             if self.method not in m.__dict__:
-                print >>sys.stderr, "No method named '%s' in module %s" % (self.method, self.module)
+                print("No method named '%s' in module %s" % (self.method, self.module), file=sys.stderr)
                 return -127
             rv = m.__dict__[self.method](self.argv)
             if rv != 0 and rv is not None:
-                print >>sys.stderr, (
+                print((
                     "Native command '%s %s' returned value '%s'" %
-                    (self.module, self.method, rv))
+                    (self.module, self.method, rv)), file=sys.stderr)
                 return (rv if isinstance(rv, int) else 1)
 
         except PythonException, e:
-            print >>sys.stderr, e
+            print(e, file=sys.stderr)
             return e.exitcode
         except:
             e = sys.exc_info()[1]
             if isinstance(e, SystemExit) and (e.code == 0 or e.code is None):
                 pass # sys.exit(0) is not a failure
             else:
-                print >>sys.stderr, e
+                print(e, file=sys.stderr)
                 traceback.print_exc()
                 return -127
         finally:
@@ -461,7 +462,7 @@ class ParallelContext(object):
 
     def _docall_generic(self, pool, job, cb, echo, justprint):
         if echo is not None:
-            print echo
+            print(echo)
         processcb = job.get_callback(ParallelContext._condition)
         if justprint:
             processcb(0)
