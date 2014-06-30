@@ -786,7 +786,7 @@ class ShellFunction(Function):
         try:
             p = subprocess.Popen(cline, executable=executable, env=makefile.env, shell=False,
                                  stdout=subprocess.PIPE, cwd=makefile.workdir)
-        except OSError, e:
+        except OSError as e:
             print("Error executing command %s" % cline[0], e, file=sys.stderr)
             return
         finally:
