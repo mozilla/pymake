@@ -134,7 +134,7 @@ class IterTest(TestBase):
         self.assertEqual(actual, expected)
 
         if ifunc == pymake.parser.itermakefilechars:
-            print "testing %r" % expected
+            print("testing %r" % expected)
             self.assertEqual(pymake.parser.flattenmakesyntax(d, 0), expected)
 
 multitest(IterTest)

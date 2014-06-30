@@ -1,6 +1,7 @@
 """
 Makefile functions.
 """
+from __future__ import print_function
 
 import parser, util
 import subprocess, os, logging, sys
@@ -786,7 +787,7 @@ class ShellFunction(Function):
             p = subprocess.Popen(cline, executable=executable, env=makefile.env, shell=False,
                                  stdout=subprocess.PIPE, cwd=makefile.workdir)
         except OSError, e:
-            print >>sys.stderr, "Error executing command %s" % cline[0], e
+            print("Error executing command %s" % cline[0], e, file=sys.stderr)
             return
         finally:
             os.environ['PATH'] = oldpath
@@ -830,7 +831,7 @@ class InfoFunction(Function):
 
     def resolve(self, makefile, variables, fd, setting):
         v = self._arguments[0].resolvestr(makefile, variables, setting)
-        print v
+        print(v)
 
 functionmap = {
     'subst': SubstFunction,

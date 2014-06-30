@@ -10,4 +10,4 @@ with open(filename, 'rU') as fh:
     source = fh.read()
 
 statements = pymake.parser.parsestring(source, filename)
-print statements.to_source()
+print(statements.to_source())

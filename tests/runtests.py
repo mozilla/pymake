@@ -15,6 +15,7 @@ The test file may contain lines at the beginning to alter the default behavior. 
 #T environment: {'VAR': 'VALUE}
 #T grep-for: "text"
 """
+from __future__ import print_function
 
 from subprocess import Popen, PIPE, STDOUT
 from optparse import OptionParser
@@ -78,15 +79,15 @@ def runTest(makefile, make, logfile, options):
     logfd.close()
 
     if stdout.find('TEST-FAIL') != -1:
-        print stdout
+        print(stdout)
         return False, "FAIL (TEST-FAIL printed)"
 
     if options['grepfor'] and stdout.find(options['grepfor']) == -1:
-        print stdout
+        print(stdout)
         return False, "FAIL (%s not in output)" % options['grepfor']
 
     if options['returncode'] == 0 and stdout.find('TEST-PASS') == -1:
-        print stdout
+        print(stdout)
         return False, 'FAIL (No TEST-PASS printed)'
 
     if options['returncode'] != 0:
@@ -94,7 +95,7 @@ def runTest(makefile, make, logfile, options):
 
     return True, 'PASS'
 
-print "%-30s%-28s%-28s" % ("Test:", "gmake:", "pymake:")
+print("%-30s%-28s%-28s" % ("Test:", "gmake:", "pymake:"))
 
 gmakefails = 0
 pymakefails = 0
@@ -153,7 +154,7 @@ for makefile in makefiles:
         elif key == 'skip':
             d['skip'] = True
         else:
-            print >>sys.stderr, "%s: Unexpected #T key: %s" % (makefile, key)
+            print("%s: Unexpected #T key: %s" % (makefile, key), file=sys.stderr)
             sys.exit(1)
 
     mdata.close()
@@ -190,12 +191,12 @@ for makefile in makefiles:
         else:
             pymakemsg = "OK (known fail)"
 
-    print "%-30.30s%-28.28s%-28.28s" % (os.path.basename(makefile),
-                                        gmakemsg, pymakemsg)
+    print("%-30.30s%-28.28s%-28.28s" % (os.path.basename(makefile),
+                                        gmakemsg, pymakemsg))
 
-print
-print "Summary:"
-print "%-30s%-28s%-28s" % ("", "gmake:", "pymake:")
+print()
+print("Summary:")
+print("%-30s%-28s%-28s" % ("", "gmake:", "pymake:"))
 
 if gmakefails == 0:
     gmakemsg = 'PASS'
@@ -207,7 +208,7 @@ if pymakefails == 0:
 else:
     pymakemsg = 'FAIL (%i failures)' % pymakefails
 
-print "%-30.30s%-28.28s%-28.28s" % ('', gmakemsg, pymakemsg)
+print("%-30.30s%-28.28s%-28.28s" % ('', gmakemsg, pymakemsg))
 
 shutil.rmtree(opts.tempdir)
 
