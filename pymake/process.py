@@ -130,7 +130,7 @@ class ClineSplitter(list):
             elif 'special' in match:
                 # Unquoted, non-escaped special characters need to be sent to a
                 # shell.
-                raise MetaCharacterException, match['special']
+                raise MetaCharacterException(match['special'])
             elif 'whitespace' in match:
                 # Whitespaces terminate current argument.
                 self._next()
@@ -146,7 +146,7 @@ class ClineSplitter(list):
                 self.glob = True
                 self._push(m.group(0))
             else:
-                raise Exception, "Shouldn't reach here"
+                raise Exception("Shouldn't reach here")
         if self.arg:
             self._next()
 
@@ -154,17 +154,17 @@ class ClineSplitter(list):
         # Single quoted strings are preserved, except for the final quote
         index = self.cline.find("'")
         if index == -1:
-            raise Exception, 'Unterminated quoted string in command'
+            raise Exception('Unterminated quoted string in command')
         self._push(self.cline[:index])
         self.cline = self.cline[index+1:]
 
     def _parse_doubly_quoted(self):
         if not self.cline:
-            raise Exception, 'Unterminated quoted string in command'
+            raise Exception('Unterminated quoted string in command')
         while self.cline:
             m = _doubly_quoted_tokens.search(self.cline)
             if not m:
-                raise Exception, 'Unterminated quoted string in command'
+                raise Exception('Unterminated quoted string in command')
             self._push(self.cline[:m.start()])
             self.cline = self.cline[m.end():]
             match = dict([(name, value) for name, value in m.groupdict().items() if value])
@@ -176,7 +176,7 @@ class ClineSplitter(list):
                 # Unquoted, non-escaped special characters in a doubly quoted
                 # string still have a special meaning and need to be sent to a
                 # shell.
-                raise MetaCharacterException, match['special']
+                raise MetaCharacterException(match['special'])
             elif 'escape' in match:
                 # Escaped backslashes turn into a single backslash
                 self._push('\\')
@@ -195,7 +195,7 @@ def clinetoargv(cline, cwd):
     str = _escapednewlines.sub('', cline)
     try:
         args = ClineSplitter(str, cwd)
-    except MetaCharacterException, e:
+    except MetaCharacterException as e:
         return None, e.char
 
     if len(args) and args[0].find('=') != -1:
@@ -332,7 +332,7 @@ class PopenJob(Job):
                 os.environ['PATH'] = self.env['PATH']
             p = subprocess.Popen(self.argv, executable=self.executable, shell=self.shell, env=self.env, cwd=self.cwd)
             return p.wait()
-        except OSError, e:
+        except OSError as e:
             print(e, file=sys.stderr)
             return -127
         finally:
@@ -399,7 +399,7 @@ class PythonJob(Job):
                     (self.module, self.method, rv)), file=sys.stderr)
                 return (rv if isinstance(rv, int) else 1)
 
-        except PythonException, e:
+        except PythonException as e:
             print(e, file=sys.stderr)
             return e.exitcode
         except:

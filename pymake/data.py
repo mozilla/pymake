@@ -950,7 +950,7 @@ class RemakeRuleContext(object):
             self.target.didanything = True
             try:
                 self.commands = [c for c in self.rule.getcommands(self.target, self.makefile)]
-            except util.MakeError, e:
+            except util.MakeError as e:
                 print(e)
                 sys.stdout.flush()
                 cb(error=True)
@@ -1284,7 +1284,7 @@ class Target(object):
 
         try:
             self.resolvedeps(makefile, targetstack, [], False)
-        except util.MakeError, e:
+        except util.MakeError as e:
             if printerror:
                 print(e)
             self.error = True

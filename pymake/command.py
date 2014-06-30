@@ -124,7 +124,7 @@ class _MakeContext(object):
                     self.makefile.include(f)
                 self.makefile.finishparsing()
                 self.makefile.remakemakefiles(self.remakecb)
-            except util.MakeError, e:
+            except util.MakeError as e:
                 print(e)
                 self.context.defer(self.cb, 2)
 
@@ -269,7 +269,7 @@ def main(args, env, cwd, cb):
         ostmts, targets, overrides = parserdata.parsecommandlineargs(arguments)
 
         _MakeContext(makeflags, makelevel, workdir, context, env, targets, options, ostmts, overrides, cb)
-    except (util.MakeError), e:
+    except (util.MakeError) as e:
         print(e)
         if options.printdir:
             print("make.py[%i]: Leaving directory '%s'" % (makelevel, workdir))
