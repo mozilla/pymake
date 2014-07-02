@@ -64,7 +64,7 @@ def runTest(makefile, make, logfile, options):
     """
 
     if os.path.exists(opts.tempdir): shutil.rmtree(opts.tempdir)
-    os.mkdir(opts.tempdir, 0755)
+    os.mkdir(opts.tempdir, 0o755)
 
     logfd = open(logfile, 'w')
     p = Popen(make + options['commandline'], stdout=logfd, stderr=STDOUT, env=options['env'])
