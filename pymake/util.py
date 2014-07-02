@@ -138,7 +138,7 @@ class MostUsedCache(object):
         return item.o
 
     def verify(self):
-        for k, v in self.d.iteritems():
+        for k, v in self.d.items():
             if v.o:
                 assert v in self.active
             else:

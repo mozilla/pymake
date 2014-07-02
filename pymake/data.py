@@ -454,7 +454,7 @@ class Variables(object):
         self.parent = parent
 
     def readfromenvironment(self, env):
-        for k, v in env.iteritems():
+        for k, v in env.items():
             self.set(k, self.FLAVOR_RECURSIVE, self.SOURCE_ENVIRONMENT, v)
 
     def get(self, name, expand=True):
@@ -554,7 +554,7 @@ class Variables(object):
             self.set(k, flavor, source, value)
 
     def __iter__(self):
-        for k, (flavor, source, value, valueexp) in self._map.iteritems():
+        for k, (flavor, source, value, valueexp) in self._map.items():
             yield k, flavor, source, value
 
     def __contains__(self, item):
@@ -1690,7 +1690,7 @@ class Makefile(object):
         self.variables.set('MAKECMDGOALS', Variables.FLAVOR_SIMPLE,
                            Variables.SOURCE_AUTOMATIC, ' '.join(targets))
 
-        for vname, val in implicit.variables.iteritems():
+        for vname, val in implicit.variables.items():
             self.variables.set(vname,
                                Variables.FLAVOR_SIMPLE,
                                Variables.SOURCE_IMPLICIT, val)
@@ -1766,7 +1766,9 @@ class Makefile(object):
                                  re.split('[%s\s]+' % os.pathsep,
                                           value.resolvestr(self, self.variables, ['VPATH'])))
 
-        targets = list(self._targets.itervalues())
+        # Must materialize target values because
+        # gettarget() modifies self._targets.
+        targets = list(self._targets.values())
         for t in targets:
             t.explicit = True
             for r in t.rules:
@@ -1842,7 +1844,7 @@ class Makefile(object):
 
     def getsubenvironment(self, variables):
         env = dict(self.env)
-        for vname, v in self.exportedvars.iteritems():
+        for vname, v in self.exportedvars.items():
             if v:
                 flavor, source, val = variables.get(vname)
                 if val is None:
