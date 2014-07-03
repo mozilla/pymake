@@ -1762,9 +1762,8 @@ class Makefile(object):
         if value is None:
             self._vpath = []
         else:
-            self._vpath = filter(lambda e: e != '',
-                                 re.split('[%s\s]+' % os.pathsep,
-                                          value.resolvestr(self, self.variables, ['VPATH'])))
+            self._vpath = [e for e in re.split('[%s\s]+' % os.pathsep,
+                                          value.resolvestr(self, self.variables, ['VPATH'])) if e != '']
 
         # Must materialize target values because
         # gettarget() modifies self._targets.
