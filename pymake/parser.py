@@ -141,7 +141,7 @@ def _replacemakecontinuations(m):
     start, end = m.span(1)
     if start == -1:
         return ' '
-    return ' '.rjust((end - start) / 2 + 1, '\\')
+    return ' '.rjust((end - start) // 2 + 1, '\\')
 
 def itermakefilechars(d, offset, tokenlist, it, ignorecomments=False):
     """
@@ -166,10 +166,10 @@ def itermakefilechars(d, offset, tokenlist, it, ignorecomments=False):
             # multiple backslashes before a hash are unescaped, halving their total number
             if l % 2:
                 # found a comment
-                yield starttext + token[:(l - 1) / 2], None, None, None
+                yield starttext + token[:(l - 1) // 2], None, None, None
                 return
             else:
-                yield starttext + token[-l / 2:], None, None, mend
+                yield starttext + token[-l // 2:], None, None, mend
         elif token in tokenlist or (token[0] == '$' and '$' in tokenlist):
             yield starttext, token, mstart, mend
         else:
@@ -198,11 +198,11 @@ def flattenmakesyntax(d, offset):
         elements.append(s[offset:mstart])
         if (mend - mstart) % 2:
             # even number of backslashes... it's a comment
-            elements.append(''.ljust((mend - mstart - 1) / 2, '\\'))
+            elements.append(''.ljust((mend - mstart - 1) // 2, '\\'))
             return ''.join(elements)
 
         # odd number of backslashes
-        elements.append(''.ljust((mend - mstart - 2) / 2, '\\') + '#')
+        elements.append(''.ljust((mend - mstart - 2) // 2, '\\') + '#')
         offset = mend
 
     elements.append(s[offset:])
