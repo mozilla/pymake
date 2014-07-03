@@ -70,7 +70,7 @@ def sleep(args):
     values = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}
     for a in args:
         multiplier = 1
-        for k, v in values.iteritems():
+        for k, v in values.items():
             if a.endswith(k):
                 a = a[:-1]
                 multiplier = v

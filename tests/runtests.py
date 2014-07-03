@@ -145,7 +145,7 @@ for makefile in makefiles:
             if sys.platform in data:
                 d['returncode'] = data[sys.platform]
         elif key == 'environment':
-            for k, v in data.iteritems():
+            for k, v in data.items():
                 d['env'][k] = v
         elif key == 'grep-for':
             d['grepfor'] = data

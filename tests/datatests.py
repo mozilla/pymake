@@ -4,7 +4,7 @@ import re
 
 
 def multitest(cls):
-    for name in cls.testdata.iterkeys():
+    for name in cls.testdata.keys():
         def m(self, name=name):
             return self.runSingle(*self.testdata[name])
 
