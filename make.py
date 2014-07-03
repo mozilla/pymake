@@ -12,8 +12,13 @@ import pymake.command, pymake.process
 import gc
 
 if __name__ == '__main__':
-  sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
-  sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 0)
+  if sys.version_info < (3,0):
+    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
+    sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 0)
+  else:
+    # Unbuffered text I/O is not allowed in Python 3.
+    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w')
+    sys.stderr = os.fdopen(sys.stderr.fileno(), 'w')
 
   gc.disable()
 
