@@ -691,7 +691,7 @@ def parsemakesyntax(d, offset, stopon, iterfunc):
     while True: # this is not a for loop because `di` changes during the function
         assert stacktop is not None
         try:
-            s, token, tokenoffset, offset = di.next()
+            s, token, tokenoffset, offset = next(di)
         except StopIteration:
             break
 
