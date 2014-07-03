@@ -206,7 +206,7 @@ class MakeSyntaxTest(TestBase):
     def compareRecursive(self, actual, expected, path):
         self.assertEqual(len(actual), len(expected),
                          "compareRecursive: %s %r" % (path, actual))
-        for i in xrange(0, len(actual)):
+        for i in range(0, len(actual)):
             ipath = path + [i]
 
             a, isfunc = actual[i]

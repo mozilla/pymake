@@ -83,7 +83,7 @@ def parsecommandlineargs(args):
     overrides = []
     stmts = StatementList()
     r = []
-    for i in xrange(0, len(args)):
+    for i in range(0, len(args)):
         a = args[i]
 
         vname, t, val = util.strpartition(a, ':=')
@@ -459,7 +459,7 @@ class SetVariable(Statement):
 
     def to_source(self):
         chars = []
-        for i in xrange(0, len(self.value)):
+        for i in range(0, len(self.value)):
             c = self.value[i]
 
             # Literal # is escaped in variable assignment otherwise it would be
@@ -688,7 +688,7 @@ class ConditionBlock(Statement):
         if len(self) != len(other):
             return False
 
-        for i in xrange(0, len(self)):
+        for i in range(0, len(self)):
             our_condition, our_statements = self[i]
             other_condition, other_statements = other[i]
 

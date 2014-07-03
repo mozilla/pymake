@@ -63,7 +63,7 @@ class LRUTest(unittest.TestCase):
         c = pymake.util.LRUCache(3, self.spaceFunc, lambda k, v: k % 2)
         self.assertEqual(tuple(c.debugitems()), ())
 
-        for i in xrange(0, len(self.expected)):
+        for i in range(0, len(self.expected)):
             k, e, fc, di = self.expected[i]
 
             v = c.get(k)
