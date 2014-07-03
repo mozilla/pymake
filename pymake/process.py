@@ -328,7 +328,7 @@ class PopenJob(Job):
         # general overview of "subprocess PATH semantics and portability".
         oldpath = os.environ['PATH']
         try:
-            if self.env is not None and self.env.has_key('PATH'):
+            if self.env is not None and 'PATH' in self.env:
                 os.environ['PATH'] = self.env['PATH']
             p = subprocess.Popen(self.argv, executable=self.executable, shell=self.shell, env=self.env, cwd=self.cwd)
             return p.wait()
