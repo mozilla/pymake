@@ -277,7 +277,7 @@ class MakefileCorupusTest(TestBase):
 
             self.assertEqual(len(statements), len(new_statements))
 
-            for i in xrange(0, len(statements)):
+            for i in range(0, len(statements)):
                 original = statements[i]
                 formatted = new_statements[i]
 

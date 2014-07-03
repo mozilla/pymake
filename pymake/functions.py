@@ -136,7 +136,7 @@ class Function(object):
         if len(self._arguments) != len(other._arguments):
             return False
 
-        for i in xrange(len(self._arguments)):
+        for i in range(len(self._arguments)):
             # According to the GNU make manual Section 8.1, whitespace around
             # arguments is *not* part of the argument's value. So, we do a
             # whitespace-agnostic comparison.
@@ -526,7 +526,7 @@ class JoinFunction(Function):
 
     @staticmethod
     def iterjoin(l1, l2):
-        for i in xrange(0, max(len(l1), len(l2))):
+        for i in range(0, max(len(l1), len(l2))):
             i1 = i < len(l1) and l1[i] or ''
             i2 = i < len(l2) and l2[i] or ''
             yield i1 + i2
@@ -671,7 +671,7 @@ class CallFunction(Function):
 
         v = data.Variables(parent=variables)
         v.set('0', data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_AUTOMATIC, vname)
-        for i in xrange(1, len(self._arguments)):
+        for i in range(1, len(self._arguments)):
             param = self._arguments[i].resolvestr(makefile, variables, setting)
             v.set(str(i), data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_AUTOMATIC, param)
 

@@ -412,7 +412,7 @@ class Expansion(BaseExpansion, list):
         if len(a) != len(b):
             return False
 
-        for i in xrange(len(self)):
+        for i in range(len(self)):
             e1, is_func1 = a[i]
             e2, is_func2 = b[i]
 
