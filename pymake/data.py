@@ -6,6 +6,7 @@ import logging, re, os, sys
 from functools import reduce
 import parserdata, parser, functions, process, util, implicit
 import globrelative
+from pymake import errors
 
 try:
     from cStringIO import StringIO
@@ -19,17 +20,6 @@ else:
     str_type = str
 
 _log = logging.getLogger('pymake.data')
-
-class DataError(util.MakeError):
-    pass
-
-class ResolutionError(DataError):
-    """
-    Raised when dependency resolution fails, either due to recursion or to missing
-    prerequisites.This is separately catchable so that implicit rule search can try things
-    without having to commit.
-    """
-    pass
 
 def withoutdups(it):
     r = set()
@@ -665,7 +655,7 @@ class Pattern(object):
         stem = self.match(word)
         if stem is None:
             if mustmatch:
-                raise DataError("target '%s' doesn't match pattern" % (word,))
+                raise errors.DataError("target '%s' doesn't match pattern" % (word,))
             return word
 
         if not self.ispattern():
@@ -956,7 +946,7 @@ class RemakeRuleContext(object):
             self.target.didanything = True
             try:
                 self.commands = [c for c in self.rule.getcommands(self.target, self.makefile)]
-            except util.MakeError as e:
+            except errors.MakeError as e:
                 print(e)
                 sys.stdout.flush()
                 cb(error=True)
@@ -995,13 +985,13 @@ class Target(object):
     def addrule(self, rule):
         assert isinstance(rule, (Rule, PatternRuleInstance))
         if len(self.rules) and rule.doublecolon != self.rules[0].doublecolon:
-            raise DataError("Cannot have single- and double-colon rules for the same target. Prior rule location: %s" % self.rules[0].loc, rule.loc)
+            raise errors.DataError("Cannot have single- and double-colon rules for the same target. Prior rule location: %s" % self.rules[0].loc, rule.loc)
 
         if isinstance(rule, PatternRuleInstance):
             if len(rule.prule.targetpatterns) != 1:
-                raise DataError("Static pattern rules must only have one target pattern", rule.prule.loc)
+                raise errors.DataError("Static pattern rules must only have one target pattern", rule.prule.loc)
             if rule.prule.targetpatterns[0].match(self.target) is None:
-                raise DataError("Static pattern rule doesn't match target '%s'" % self.target, rule.loc)
+                raise errors.DataError("Static pattern rule doesn't match target '%s'" % self.target, rule.loc)
 
         self.rules.append(rule)
 
@@ -1079,7 +1069,7 @@ class Target(object):
                 t = makefile.gettarget(p)
                 try:
                     t.resolvedeps(makefile, targetstack, newrulestack, True)
-                except ResolutionError:
+                except errors.ResolutionError:
                     depfailed = p
                     break
 
@@ -1116,7 +1106,7 @@ class Target(object):
         assert makefile.parsingfinished
 
         if self.target in targetstack:
-            raise ResolutionError("Recursive dependency: %s -> %s" % (
+            raise errors.ResolutionError("Recursive dependency: %s -> %s" % (
                     " -> ".join(targetstack), self.target))
 
         targetstack = targetstack + [self.target]
@@ -1133,7 +1123,7 @@ class Target(object):
             if ruleswithcommands > 1:
                 # In GNU make this is a warning, not an error. I'm going to be stricter.
                 # TODO: provide locations
-                raise DataError("Target '%s' has multiple rules with commands." % self.target)
+                raise errors.DataError("Target '%s' has multiple rules with commands." % self.target)
 
         if ruleswithcommands == 0:
             self.resolveimplicitrule(makefile, targetstack, rulestack)
@@ -1145,7 +1135,7 @@ class Target(object):
         # Otherwise, we don't know how to make it.
         if not len(self.rules) and self.mtime is None and not util.any((len(rule.prerequisites) > 0
                                                                         for rule in self.rules)):
-            raise ResolutionError("No rule to make target '%s' needed by %r" % (self.target,
+            raise errors.ResolutionError("No rule to make target '%s' needed by %r" % (self.target,
                                                                                 targetstack))
 
         if recursive:
@@ -1181,7 +1171,7 @@ class Target(object):
 
                     for lp in libpatterns:
                         if not lp.ispattern():
-                            raise DataError('.LIBPATTERNS contains a non-pattern')
+                            raise errors.DataError('.LIBPATTERNS contains a non-pattern')
 
                         libname = lp.resolve('', stem)
 
@@ -1290,7 +1280,7 @@ class Target(object):
 
         try:
             self.resolvedeps(makefile, targetstack, [], False)
-        except util.MakeError as e:
+        except errors.MakeError as e:
             if printerror:
                 print(e)
             self.error = True
@@ -1428,9 +1418,9 @@ class _NativeWrapper(_CommandWrapper):
         # get the module and method to call
         parts, badchar = process.clinetoargv(self.cline, self.kwargs['cwd'])
         if parts is None:
-            raise DataError("native command '%s': shell metacharacter '%s' in command line" % (self.cline, badchar), self.loc)
+            raise errors.DataError("native command '%s': shell metacharacter '%s' in command line" % (self.cline, badchar), self.loc)
         if len(parts) < 2:
-            raise DataError("native command '%s': no method name specified" % self.cline, self.loc)
+            raise errors.DataError("native command '%s': no method name specified" % self.cline, self.loc)
         module = parts[0]
         method = parts[1]
         cline_list = parts[2:]
@@ -1599,7 +1589,7 @@ class _RemakeContext(object):
 
         if error:
             if self.required:
-                self.cb(remade=False, error=util.MakeError(
+                self.cb(remade=False, error=errors.MakeError(
                     'Error remaking required makefiles'))
                 return
             else:
@@ -1615,7 +1605,7 @@ class _RemakeContext(object):
                     self.cb(remade=True)
                     return
                 elif required and t.mtime is None:
-                    self.cb(remade=False, error=DataError("No rule to remake missing include file %s" % t.target))
+                    self.cb(remade=False, error=errors.DataError("No rule to remake missing include file %s" % t.target))
                     return
 
             self.cb(remade=False)
@@ -1756,7 +1746,7 @@ class Makefile(object):
 
         flavor, source, value = self.variables.get('GPATH')
         if value is not None and value.resolvestr(self, self.variables, ['GPATH']).strip() != '':
-            raise DataError('GPATH was set: pymake does not support GPATH semantics')
+            raise errors.DataError('GPATH was set: pymake does not support GPATH semantics')
 
         flavor, source, value = self.variables.get('VPATH')
         if value is None:

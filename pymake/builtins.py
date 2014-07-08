@@ -2,7 +2,7 @@
 import errno, sys, os, shutil, time
 from getopt import getopt, GetoptError
 
-from process import PythonException
+from pymake  import errors
 
 __all__ = ["mkdir", "rm", "sleep", "touch"]
 
@@ -14,7 +14,7 @@ def mkdir(args):
   try:
     opts, args = getopt(args, "p", ["parents"])
   except GetoptError as e:
-    raise PythonException("mkdir: %s" % e, 1)
+    raise errors.PythonError("mkdir: %s" % e, 1)
   parents = False
   for o, a in opts:
     if o in ('-p', '--parents'):
@@ -29,7 +29,7 @@ def mkdir(args):
       if e.errno == errno.EEXIST and parents:
         pass
       else:
-        raise PythonException("mkdir: %s" % e, 1)
+        raise errors.PythonError("mkdir: %s" % e, 1)
 
 def rm(args):
   """
@@ -39,7 +39,7 @@ def rm(args):
   try:
     opts, args = getopt(args, "rRf", ["force", "recursive"])
   except GetoptError as e:
-    raise PythonException("rm: %s" % e, 1)
+    raise errors.PythonError("rm: %s" % e, 1)
   force = False
   recursive = False
   for o, a in opts:
@@ -50,7 +50,7 @@ def rm(args):
   for f in args:
     if os.path.isdir(f):
       if not recursive:
-        raise PythonException("rm: cannot remove '%s': Is a directory" % f, 1)
+        raise errors.PythonError("rm: cannot remove '%s': Is a directory" % f, 1)
       else:
         shutil.rmtree(f, force)
     elif os.path.exists(f):
@@ -58,9 +58,9 @@ def rm(args):
         os.unlink(f)
       except:
         if not force:
-          raise PythonException("rm: failed to remove '%s': %s" % (f, sys.exc_info()[0]), 1)
+          raise errors.PythonError("rm: failed to remove '%s': %s" % (f, sys.exc_info()[0]), 1)
     elif not force:
-      raise PythonException("rm: cannot remove '%s': No such file or directory" % f, 1)
+      raise errors.PythonError("rm: cannot remove '%s': No such file or directory" % f, 1)
 
 def sleep(args):
     """
@@ -79,7 +79,7 @@ def sleep(args):
             f = float(a)
             total += f * multiplier
         except ValueError:
-            raise PythonException("sleep: invalid time interval '%s'" % a, 1)
+            raise errors.PythonError("sleep: invalid time interval '%s'" % a, 1)
     time.sleep(total)
 
 def touch(args):
@@ -89,7 +89,7 @@ def touch(args):
     try:
         opts, args = getopt(args, "t:")
     except GetoptError as e:
-        raise PythonException("touch: %s" % e, 1)
+        raise errors.PythonError("touch: %s" % e, 1)
     opts = dict(opts)
     times = None
     if '-t' in opts:
@@ -97,7 +97,7 @@ def touch(args):
         from time import mktime, localtime
         m = re.match('^(?P<Y>(?:\d\d)?\d\d)?(?P<M>\d\d)(?P<D>\d\d)(?P<h>\d\d)(?P<m>\d\d)(?:\.(?P<s>\d\d))?$', opts['-t'])
         if not m:
-            raise PythonException("touch: invalid date format '%s'" % opts['-t'], 1)
+            raise errors.PythonError("touch: invalid date format '%s'" % opts['-t'], 1)
         def normalized_field(m, f):
             if f == 'Y':
                 if m.group(f) is None:

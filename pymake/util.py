@@ -1,17 +1,5 @@
 import os
 
-class MakeError(Exception):
-    def __init__(self, message, loc=None):
-        self.msg = message
-        self.loc = loc
-
-    def __str__(self):
-        locstr = ''
-        if self.loc is not None:
-            locstr = "%s:" % (self.loc,)
-
-        return "%s%s" % (locstr, self.msg)
-
 def normaljoin(path, suffix):
     """
     Combine the given path with the suffix, and normalize if necessary to shrink the path to avoid hitting path length limits

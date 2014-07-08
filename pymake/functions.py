@@ -6,7 +6,7 @@ from __future__ import print_function
 import parser, util
 import subprocess, os, logging, sys
 from globrelative import glob
-
+from pymake import errors
 
 log = logging.getLogger('pymake.data')
 
@@ -52,7 +52,7 @@ class Function(object):
         argc = len(self._arguments)
 
         if argc < self.minargs:
-            raise data.DataError("Not enough arguments to function %s, requires %s" % (self.name, self.minargs), self.loc)
+            raise errors.DataError("Not enough arguments to function %s, requires %s" % (self.name, self.minargs), self.loc)
 
         assert self.maxargs == 0 or argc <= self.maxargs, "Parser screwed up, gave us too many args"
 
@@ -176,7 +176,7 @@ class VariableRef(Function):
     def resolve(self, makefile, variables, fd, setting):
         vname = self.vname.resolvestr(makefile, variables, setting)
         if vname in setting:
-            raise data.DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
+            raise errors.DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
 
         flavor, source, value = variables.get(vname)
         if value is None:
@@ -223,7 +223,7 @@ class SubstitutionRef(Function):
     def resolve(self, makefile, variables, fd, setting):
         vname = self.vname.resolvestr(makefile, variables, setting)
         if vname in setting:
-            raise data.DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
+            raise errors.DataError("Setting variable '%s' recursively references itself." % (vname,), self.loc)
 
         substfrom = self.substfrom.resolvestr(makefile, variables, setting)
         substto = self.substto.resolvestr(makefile, variables, setting)
@@ -667,7 +667,7 @@ class CallFunction(Function):
     def resolve(self, makefile, variables, fd, setting):
         vname = self._arguments[0].resolvestr(makefile, variables, setting)
         if vname in setting:
-            raise data.DataError("Recursively setting variable '%s'" % (vname,))
+            raise errors.DataError("Recursively setting variable '%s'" % (vname,))
 
         v = data.Variables(parent=variables)
         v.set('0', data.Variables.FLAVOR_SIMPLE, data.Variables.SOURCE_AUTOMATIC, vname)
@@ -709,7 +709,7 @@ class EvalFunction(Function):
         if makefile.parsingfinished:
             # GNU make allows variables to be set by recursive expansion during
             # command execution. This seems really dumb to me, so I don't!
-            raise data.DataError("$(eval) not allowed via recursive expansion after parsing is finished", self.loc)
+            raise errors.DataError("$(eval) not allowed via recursive expansion after parsing is finished", self.loc)
 
         stmts = parser.parsestring(self._arguments[0].resolvestr(makefile, variables, setting),
                                    'evaluation from %s' % self.loc)
@@ -809,7 +809,7 @@ class ErrorFunction(Function):
 
     def resolve(self, makefile, variables, fd, setting):
         v = self._arguments[0].resolvestr(makefile, variables, setting)
-        raise data.DataError(v, self.loc)
+        raise errors.DataError(v, self.loc)
 
 class WarningFunction(Function):
     name = 'warning'

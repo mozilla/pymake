@@ -12,6 +12,7 @@ except when a submake specifies -j1 when the parent make is building in parallel
 import os, subprocess, sys, logging, time, traceback, re
 from optparse import OptionParser
 import data, parserdata, process, util
+from pymake import errors
 
 # TODO: If this ever goes from relocatable package to system-installed, this may need to be
 # a configured-in path.
@@ -50,7 +51,7 @@ def parsemakeflags(env):
         if c == '\\':
             i += 1
             if i == len(makeflags):
-                raise data.DataError("MAKEFLAGS has trailing backslash")
+                raise errors.DataError("MAKEFLAGS has trailing backslash")
             c = makeflags[i]
             
         curopt += c
@@ -124,7 +125,7 @@ class _MakeContext(object):
                     self.makefile.include(f)
                 self.makefile.finishparsing()
                 self.makefile.remakemakefiles(self.remakecb)
-            except util.MakeError as e:
+            except errors.MakeError as e:
                 print(e)
                 self.context.defer(self.cb, 2)
 
@@ -269,7 +270,7 @@ def main(args, env, cwd, cb):
         ostmts, targets, overrides = parserdata.parsecommandlineargs(arguments)
 
         _MakeContext(makeflags, makelevel, workdir, context, env, targets, options, ostmts, overrides, cb)
-    except (util.MakeError) as e:
+    except errors.MakeError as e:
         print(e)
         if options.printdir:
             print("make.py[%i]: Leaving directory '%s'" % (makelevel, workdir))
