@@ -12,6 +12,7 @@ from collections import deque
 # XXXkhuey Work around http://bugs.python.org/issue1731717
 subprocess._cleanup = lambda: None
 import command, util
+from pymake import errors
 if sys.platform=='win32':
     import win32process
 
@@ -338,16 +339,6 @@ class PopenJob(Job):
         finally:
             os.environ['PATH'] = oldpath
 
-class PythonException(Exception):
-    def __init__(self, message, exitcode):
-        Exception.__init__(self)
-        self.message = message
-        self.exitcode = exitcode
-
-    def __str__(self):
-        return self.message
-
-
 class PythonJob(Job):
     """
     A job that calls a Python method.
@@ -399,7 +390,7 @@ class PythonJob(Job):
                     (self.module, self.method, rv)), file=sys.stderr)
                 return (rv if isinstance(rv, int) else 1)
 
-        except PythonException as e:
+        except errors.PythonError as e:
             print(e, file=sys.stderr)
             return e.exitcode
         except:

@@ -1,8 +1,9 @@
 from __future__ import print_function
 
 import logging, re, os
-import data, parser, functions, util
+import data, parser, util
 from pymake.globrelative import hasglob, glob
+from pymake import errors
 
 try:
     from cStringIO import StringIO
@@ -197,7 +198,7 @@ class Rule(Statement):
 
         ispatterns = set((t.ispattern() for t in targets))
         if len(ispatterns) == 2:
-            raise data.DataError("Mixed implicit and normal rule", self.targetexp.loc)
+            raise errors.DataError("Mixed implicit and normal rule", self.targetexp.loc)
         ispattern, = ispatterns
 
         deps = list(_expandwildcards(makefile, data.stripdotslashes(self.depexp.resolvesplit(makefile, makefile.variables))))
@@ -264,7 +265,7 @@ class StaticPatternRule(Statement):
 
     def execute(self, makefile, context):
         if context.weak:
-            raise data.DataError("Static pattern rules not allowed in includedeps", self.targetexp.loc)
+            raise errors.DataError("Static pattern rules not allowed in includedeps", self.targetexp.loc)
 
         targets = list(_expandwildcards(makefile, data.stripdotslashes(self.targetexp.resolvesplit(makefile, makefile.variables))))
 
@@ -274,7 +275,7 @@ class StaticPatternRule(Statement):
 
         patterns = list(data.stripdotslashes(self.patternexp.resolvesplit(makefile, makefile.variables)))
         if len(patterns) != 1:
-            raise data.DataError("Static pattern rules must have a single pattern", self.patternexp.loc)
+            raise errors.DataError("Static pattern rules must have a single pattern", self.patternexp.loc)
         pattern = data.Pattern(patterns[0])
 
         deps = [data.Pattern(p) for p in _expandwildcards(makefile, data.stripdotslashes(self.depexp.resolvesplit(makefile, makefile.variables)))]
@@ -283,10 +284,10 @@ class StaticPatternRule(Statement):
 
         for t in targets:
             if data.Pattern(t).ispattern():
-                raise data.DataError("Target '%s' of a static pattern rule must not be a pattern" % (t,), self.targetexp.loc)
+                raise errors.DataError("Target '%s' of a static pattern rule must not be a pattern" % (t,), self.targetexp.loc)
             stem = pattern.match(t)
             if stem is None:
-                raise data.DataError("Target '%s' does not match the static pattern '%s'" % (t, pattern), self.targetexp.loc)
+                raise errors.DataError("Target '%s' does not match the static pattern '%s'" % (t, pattern), self.targetexp.loc)
             makefile.gettarget(t).addrule(data.PatternRuleInstance(rule, '', stem, pattern.ismatchany()))
 
         makefile.foundtarget(targets[0])
@@ -342,7 +343,7 @@ class Command(Statement):
     def execute(self, makefile, context):
         assert context.currule is not None
         if context.weak:
-            raise data.DataError("rules not allowed in includedeps", self.exp.loc)
+            raise errors.DataError("rules not allowed in includedeps", self.exp.loc)
 
         context.currule.addcommand(self.exp)
 
@@ -407,7 +408,7 @@ class SetVariable(Statement):
     def execute(self, makefile, context):
         vname = self.vnameexp.resolvestr(makefile, makefile.variables)
         if len(vname) == 0:
-            raise data.DataError("Empty variable name", self.vnameexp.loc)
+            raise errors.DataError("Empty variable name", self.vnameexp.loc)
 
         if self.targetexp is None:
             setvariables = [makefile.variables]
@@ -641,7 +642,7 @@ class ConditionBlock(Statement):
         condition.loc = loc
 
         if len(self._groups) and isinstance(self._groups[-1][0], ElseCondition):
-            raise parser.SyntaxError("Multiple else conditions for block starting at %s" % self.loc, loc)
+            raise errors.SyntaxError("Multiple else conditions for block starting at %s" % self.loc, loc)
 
         self._groups.append((condition, StatementList()))
 
@@ -887,7 +888,7 @@ class ExportDirective(Statement):
         else:
             vlist = list(self.exp.resolvesplit(makefile, makefile.variables))
             if not len(vlist):
-                raise data.DataError("Exporting all variables is not supported", self.exp.loc)
+                raise errors.DataError("Exporting all variables is not supported", self.exp.loc)
 
         for v in vlist:
             makefile.exportedvars[v] = True
@@ -952,7 +953,7 @@ class EmptyDirective(Statement):
     def execute(self, makefile, context):
         v = self.exp.resolvestr(makefile, makefile.variables)
         if v.strip() != '':
-            raise data.DataError("Line expands to non-empty value", self.exp.loc)
+            raise errors.DataError("Line expands to non-empty value", self.exp.loc)
 
     def dump(self, fd, indent):
         print("%sEmptyDirective: %s" % (indent, self.exp), file=fd)
